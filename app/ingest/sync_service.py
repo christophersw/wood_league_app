@@ -119,7 +119,10 @@ class ChessComSyncService:
 
         opening_name, eco_code, opening_plies = self._opening_from_pgn(result_pgn)
 
-        game.player_id = player.id
+        # Only set player_id on creation — never overwrite it on updates so that
+        # games shared between two tracked players don't flip ownership on each sync.
+        if created:
+            game.player_id = player.id
         game.played_at = played_at
         game.opponent_name = (opp_side.get("username") or "unknown").lower()
         game.color = "White" if is_white else "Black"
