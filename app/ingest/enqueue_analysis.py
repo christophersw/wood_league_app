@@ -71,6 +71,26 @@ def enqueue_unanalyzed(depth: int = 20, priority: int = 0, limit: int | None = N
         return len(jobs)
 
 
+def enqueue_game(game_id: str, engine: str = "stockfish", depth: int = 20) -> bool:
+    """Enqueue a single game for analysis. Returns True if a new job was created, False if one already exists."""
+    init_db()
+    with get_session() as session:
+        existing = session.execute(
+            select(AnalysisJob).where(
+                and_(
+                    AnalysisJob.game_id == game_id,
+                    AnalysisJob.engine == engine,
+                    AnalysisJob.status.in_(["pending", "running"]),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return False
+        session.add(AnalysisJob(game_id=game_id, engine=engine, depth=depth, status="pending", priority=10))
+        session.commit()
+        return True
+
+
 def queue_status() -> dict:
     """Return counts of jobs by status."""
     init_db()

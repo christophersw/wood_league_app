@@ -57,6 +57,7 @@ class Game(Base):
 
     player: Mapped[Player] = relationship()
     analysis: Mapped["GameAnalysis | None"] = relationship(back_populates="game", uselist=False)
+    lc0_analysis: Mapped["Lc0GameAnalysis | None"] = relationship(back_populates="game", uselist=False)
     participants: Mapped[list["GameParticipant"]] = relationship(back_populates="game", cascade="all, delete-orphan")
     analysis_jobs: Mapped[list["AnalysisJob"]] = relationship(back_populates="game", cascade="all, delete-orphan")
 
@@ -141,6 +142,7 @@ class AnalysisJob(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)
     depth: Mapped[int] = mapped_column(Integer, default=20)
+    engine: Mapped[str] = mapped_column(String(16), default="stockfish", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -161,3 +163,59 @@ class WorkerHeartbeat(Base):
     jobs_completed: Mapped[int] = mapped_column(Integer, default=0)
     jobs_failed: Mapped[int] = mapped_column(Integer, default=0)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Lc0GameAnalysis(Base):
+    """Leela Chess Zero WDL analysis summary for a game. Parallel to game_analysis (Stockfish)."""
+    __tablename__ = "lc0_game_analysis"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[str] = mapped_column(ForeignKey("games.id"), unique=True, index=True)
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    engine_nodes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    network_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # Per-player summary stats derived from WDL
+    white_win_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    white_draw_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    white_loss_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    black_win_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    black_draw_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    black_loss_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Blunder/mistake/inaccuracy counts using WDL-derived CPL equivalent
+    white_blunders: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    white_mistakes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    white_inaccuracies: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    black_blunders: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    black_mistakes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    black_inaccuracies: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    game: Mapped[Game] = relationship(back_populates="lc0_analysis")
+    moves: Mapped[list["Lc0MoveAnalysis"]] = relationship(back_populates="analysis", cascade="all, delete-orphan")
+
+
+class Lc0MoveAnalysis(Base):
+    """Per-move Lc0 WDL data. Stores raw permille values + derived best move."""
+    __tablename__ = "lc0_move_analysis"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    analysis_id: Mapped[int] = mapped_column(ForeignKey("lc0_game_analysis.id"), index=True)
+    ply: Mapped[int] = mapped_column(Integer)
+    san: Mapped[str] = mapped_column(String(32))
+    fen: Mapped[str] = mapped_column(Text)
+
+    # Raw WDL permille values (white-to-move perspective), sum to 1000
+    wdl_win: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wdl_draw: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wdl_loss: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Q-derived centipawn equivalent for compatibility with existing classification logic
+    cp_equiv: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    best_move: Mapped[str] = mapped_column(String(32), default="")
+    arrow_uci: Mapped[str] = mapped_column(String(8), default="")
+    move_win_delta: Mapped[float | None] = mapped_column(Float, nullable=True)  # win% drop for mover
+    classification: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    analysis: Mapped[Lc0GameAnalysis] = relationship(back_populates="moves")

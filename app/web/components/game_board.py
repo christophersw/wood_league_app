@@ -20,14 +20,17 @@ def render_svg_game_viewer(
     orientation: str = "white",
     initial_ply: int | str = "last",
     eval_data: list[dict] | None = None,
+    wdl_data: list[dict] | None = None,
 ) -> None:
     """Full-game SVG viewer with play/pause, scrubber, move list, and best-move arrows.
 
     ``moves_df`` must have columns: ply, san, fen, arrow_uci (UCI of best move).
+    ``wdl_data`` — optional list of {"ply": int, "wdl_win": int, "wdl_draw": int, "wdl_loss": int}
+    dicts (permille, white-perspective). When provided, renders a Lc0 WDL stacked area chart.
     ``eval_data`` — optional list of {"ply": int, "cp_eval": float} dicts.
-    When provided, an interactive Plotly.js eval chart is embedded below the
-    board and kept in sync: navigating the board highlights the current bar,
-    and clicking a bar jumps the board to that ply.
+    When provided (and wdl_data is None), renders a centipawn bar chart.
+    Both charts are interactive: navigating the board highlights the current position,
+    and clicking the chart jumps the board to that ply.
     """
     viewer_id = f"svg-{uuid4().hex}"
     game = chess.pgn.read_game(io.StringIO(pgn))
@@ -274,15 +277,119 @@ def render_svg_game_viewer(
     </script>
     """
 
-    # -- Optionally embed a linked Plotly.js eval chart -----------------------
-    eval_chart_html = ""
-    eval_extra_height = 0
+    # -- Optionally embed linked charts (WDL stacked area and/or cp bar) -------
+    charts_html = ""
+    extra_height = 0
+
+    # Inject the Plotly CDN once if either chart is needed
+    if wdl_data or eval_data:
+        charts_html += '<script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>\n'
+
+    # Add a second div for the Stockfish chart when both are present
+    if wdl_data and eval_data:
+        html = html.replace(
+            f'<div id="{viewer_id}-eval"></div>',
+            f'<div id="{viewer_id}-eval"></div><div id="{viewer_id}-eval2" style="margin-top:12px"></div>',
+        )
+
+    if wdl_data:
+        wdl_json = json.dumps(wdl_data)
+        wdl_count = len(wdl_data)
+        wdl_height = max(240, min(400, 160 + wdl_count * 4))
+        extra_height += wdl_height + 20
+        charts_html += f"""
+    <script>
+    (function() {{
+      const wdlData = {wdl_json};
+      const plies = wdlData.map(d => Number(d.ply));
+      const wins   = wdlData.map(d => Number(d.wdl_win)  / 10);
+      const draws  = wdlData.map(d => Number(d.wdl_draw) / 10);
+      const losses = wdlData.map(d => Number(d.wdl_loss) / 10);
+
+      const traceWin = {{
+        x: plies, y: wins, name: 'White Win',
+        type: 'scatter', mode: 'lines', stackgroup: 'wdl',
+        fill: 'tozeroy', fillcolor: 'rgba(249,250,251,0.60)',
+        line: {{ color: '#f9fafb', width: 1 }},
+        hovertemplate: 'White win: %{{y:.1f}}%<extra></extra>',
+      }};
+      const traceDraw = {{
+        x: plies, y: draws, name: 'Draw',
+        type: 'scatter', mode: 'lines', stackgroup: 'wdl',
+        fill: 'tonexty', fillcolor: 'rgba(156,163,175,0.50)',
+        line: {{ color: '#9ca3af', width: 1 }},
+        hovertemplate: 'Draw: %{{y:.1f}}%<extra></extra>',
+      }};
+      const traceLoss = {{
+        x: plies, y: losses, name: 'Black Win',
+        type: 'scatter', mode: 'lines', stackgroup: 'wdl',
+        fill: 'tonexty', fillcolor: 'rgba(55,65,81,0.65)',
+        line: {{ color: '#374151', width: 1 }},
+        hovertemplate: 'Black win: %{{y:.1f}}%<extra></extra>',
+      }};
+
+      // Classification markers — dots along the bottom of the chart
+      const clsMeta = [
+        {{ cls: 'blunder',    color: '#ef4444', size: 10, label: 'Blunder ??'     }},
+        {{ cls: 'mistake',    color: '#f97316', size: 8,  label: 'Mistake ?'      }},
+        {{ cls: 'inaccuracy', color: '#eab308', size: 6,  label: 'Inaccuracy ?!'  }},
+      ];
+      const clsTraces = clsMeta.map(m => {{
+        const pts = wdlData.filter(d => d.classification === m.cls);
+        return {{
+          x: pts.map(d => Number(d.ply)),
+          y: pts.map(() => 2),
+          name: m.label,
+          type: 'scatter', mode: 'markers',
+          marker: {{ color: m.color, size: m.size, symbol: 'circle' }},
+          customdata: pts.map(d => d.san || ''),
+          hovertemplate: '%{{customdata}} — ' + m.label + '<extra></extra>',
+        }};
+      }});
+
+      // Vertical amber line marking the current ply
+      const wdlHighlight = {{
+        x: [null, null], y: [0, 100], mode: 'lines',
+        showlegend: false, hoverinfo: 'skip',
+        line: {{ color: '#f59e0b', width: 2, dash: 'dot' }},
+      }};
+
+      const allWdlTraces = [traceWin, traceDraw, traceLoss, ...clsTraces, wdlHighlight];
+      const wdlHighlightIdx = allWdlTraces.length - 1;
+
+      const wdlDiv = document.getElementById('{viewer_id}-eval');
+      Plotly.newPlot(wdlDiv, allWdlTraces, {{
+        xaxis: {{ title: 'Ply (half-move)', zeroline: false }},
+        yaxis: {{ title: 'Win/Draw/Loss (%)', range: [0, 100], ticksuffix: '%' }},
+        legend: {{ orientation: 'h', y: -0.25 }},
+        margin: {{ l: 55, r: 20, t: 8, b: 60 }},
+        height: {wdl_height},
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+        font: {{ color: '#d1d5db' }}, hovermode: 'x unified',
+        annotations: [{{ text: 'Lc0 WDL', xref: 'paper', yref: 'paper',
+          x: 0, y: 1.04, showarrow: false, font: {{ size: 11, color: '#9ca3af' }} }}],
+      }}, {{ displaylogo: false, responsive: true }}).then(() => {{
+        window._evalChart = wdlDiv;
+        wdlDiv.on('plotly_click', function(data) {{
+          if (data.points && data.points.length > 0) window.goTo(data.points[0].x);
+        }});
+        if (typeof window.goTo === 'function') window.goTo(window.currentPly);
+      }});
+
+      window._updateWdlHighlight = function(ply) {{
+        Plotly.restyle(wdlDiv, {{ x: [[ply, ply]], y: [[0, 100]] }}, [wdlHighlightIdx]);
+      }};
+    }})();
+    </script>
+    """
+
     if eval_data:
         eval_json = json.dumps(eval_data)
         eval_count = len(eval_data)
-        eval_extra_height = max(340, min(1100, 150 + eval_count * 14))
-        eval_chart_html = f"""
-    <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+        sf_height = max(240, min(500, 150 + eval_count * 6))
+        extra_height += sf_height + 20
+        eval_div_id = f'{viewer_id}-eval2' if wdl_data else f'{viewer_id}-eval'
+        charts_html += f"""
     <script>
     (function() {{
       const evalData = {eval_json};
@@ -293,123 +400,92 @@ def render_svg_game_viewer(
       const points = evalData.map(d => {{
         const ply = Number(d.ply);
         const rawCp = Number(d.cp_eval ?? 0);
+        const cls = d.classification || '';
         const isMate = Math.abs(rawCp) >= MATE_THRESHOLD;
         const side = rawCp >= 0 ? 'White' : 'Black';
-
         let mateMoves = null;
         if (isMate) {{
-          // If cp is encoded from mate_score (e.g. 9995 => M5), recover distance.
           const recovered = Math.round(MATE_CP_BASE - Math.abs(rawCp));
-          if (recovered > 0) {{
-            mateMoves = recovered;
-          }}
+          if (recovered > 0) mateMoves = recovered;
         }}
-
         const displayCp = isMate
           ? (rawCp >= 0 ? DISPLAY_CP_CAP : -DISPLAY_CP_CAP)
           : Math.max(-DISPLAY_CP_CAP, Math.min(DISPLAY_CP_CAP, rawCp));
-
         const hoverText = isMate
-          ? (mateMoves
-              ? `${{side}} mate in ${{mateMoves}}`
-              : `${{side}} forced mate`)
+          ? (mateMoves ? `${{side}} mate in ${{mateMoves}}` : `${{side}} forced mate`)
           : `${{rawCp >= 0 ? '+' : ''}}${{Math.round(rawCp)}} cp`;
-
         const textLabel = isMate
-          ? (mateMoves
-              ? `M${{rawCp >= 0 ? '+' : '-'}}${{mateMoves}}`
-              : `M${{rawCp >= 0 ? '+' : '-'}}`)
+          ? (mateMoves ? `M${{rawCp >= 0 ? '+' : '-'}}${{mateMoves}}` : `M${{rawCp >= 0 ? '+' : '-'}}`)
           : '';
-
-        return {{
-          ply,
-          rawCp,
-          displayCp,
-          isMate,
-          hoverText,
-          textLabel,
-        }};
+        return {{ ply, rawCp, displayCp, isMate, hoverText, textLabel, cls, san: d.san || '' }};
       }});
 
       const plies = points.map(p => p.ply);
       const evals = points.map(p => p.displayCp);
-      const whiteColor = '#f9fafb';
-      const blackColor = '#111111';
-      const colors = points.map(p => p.rawCp >= 0 ? whiteColor : blackColor);
-      const lineColors = points.map(() => '#9ca3af');
+      // Bar fill: white/black by sign; outline: red=blunder, orange=mistake, yellow=inaccuracy
+      const clsOutline = {{ blunder: '#ef4444', mistake: '#f97316', inaccuracy: '#eab308' }};
+      const colors = points.map(p => p.rawCp >= 0 ? '#f9fafb' : '#111111');
+      const lineColors = points.map(p => clsOutline[p.cls] || '#9ca3af');
+      const lineWidths = points.map(p => clsOutline[p.cls] ? 2.5 : 1);
       const baseOpacity = evals.map(() => 0.82);
 
       const trace = {{
-        x: evals,
-        y: plies,
-        type: 'bar',
-        orientation: 'h',
-        marker: {{
-          color: colors.slice(),
-          opacity: baseOpacity.slice(),
-          line: {{ color: lineColors.slice(), width: 1 }}
-        }},
-        text: points.map(p => p.textLabel),
-        textposition: 'outside',
-        customdata: points.map(p => [p.rawCp, p.isMate, p.hoverText]),
-        hovertemplate: 'Ply %{{y}}<br>%{{customdata[2]}}<extra></extra>',
+        x: evals, y: plies, type: 'bar', orientation: 'h',
+        marker: {{ color: colors.slice(), opacity: baseOpacity.slice(),
+          line: {{ color: lineColors.slice(), width: lineWidths.slice() }} }},
+        text: points.map(p => p.textLabel), textposition: 'outside',
+        customdata: points.map(p => [p.rawCp, p.isMate, p.hoverText, p.cls, p.san]),
+        hovertemplate: 'Ply %{{y}} %{{customdata[4]}}<br>%{{customdata[2]}}%{{customdata[3] ? " — " + customdata[3] : ""}}<extra></extra>',
       }};
-      const layout = {{
-        title: 'Engine Evaluation by Ply (White + / Black -)',
+
+      const sfDiv = document.getElementById('{eval_div_id}');
+      Plotly.newPlot(sfDiv, [trace], {{
         xaxis: {{
-          title: 'Centipawns (mate scores capped for display)',
-          zeroline: true,
-          zerolinecolor: '#9ca3af',
-          zerolinewidth: 2,
-          range: [-DISPLAY_CP_CAP * 1.1, DISPLAY_CP_CAP * 1.1]
+          title: 'Centipawns', zeroline: true, zerolinecolor: '#9ca3af', zerolinewidth: 2,
+          range: [-DISPLAY_CP_CAP * 1.1, DISPLAY_CP_CAP * 1.1],
         }},
         yaxis: {{ title: 'Ply', autorange: 'reversed' }},
-        margin: {{ l: 50, r: 20, t: 36, b: 40 }},
-        bargap: 0.12,
-        height: {eval_extra_height - 20},
-        paper_bgcolor: 'rgba(0,0,0,0)',
-        plot_bgcolor: 'rgba(0,0,0,0)',
+        margin: {{ l: 50, r: 20, t: 20, b: 40 }},
+        bargap: 0.12, height: {sf_height},
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
         font: {{ color: '#d1d5db' }},
-      }};
-      const evalDiv = document.getElementById('{viewer_id}-eval');
-      Plotly.newPlot(evalDiv, [trace], layout, {{ displaylogo: false, responsive: true }}).then(() => {{
-        window._evalChart = evalDiv;
-        // click bar → jump board
-        evalDiv.on('plotly_click', function(data) {{
-          if (data.points && data.points.length > 0) {{
-            const ply = data.points[0].y;
-            window.goTo(ply);
-          }}
+        annotations: [{{ text: 'Stockfish', xref: 'paper', yref: 'paper',
+          x: 0, y: 1.06, showarrow: false, font: {{ size: 11, color: '#9ca3af' }} }}],
+      }}, {{ displaylogo: false, responsive: true }}).then(() => {{
+        if (!window._evalChart) window._evalChart = sfDiv;
+        sfDiv.on('plotly_click', function(data) {{
+          if (data.points && data.points.length > 0) window.goTo(data.points[0].y);
         }});
-        // initial highlight
-        if (typeof window.updateEvalHighlight === 'function') {{
-          window.updateEvalHighlight(window.currentPly);
-        }}
-        // ensure board render and chart highlight are synchronized once chart is ready
-        if (typeof window.goTo === 'function') {{
-          window.goTo(window.currentPly);
-        }}
+        if (typeof window.goTo === 'function') window.goTo(window.currentPly);
       }});
 
-      window.updateEvalHighlight = function(ply) {{
+      window._updateSfHighlight = function(ply) {{
         const highlightColor = '#f59e0b';
-        const lineColor = plies.map(p => p === ply ? highlightColor : '#9ca3af');
-        const opacity = plies.map(p => p === ply ? 1.0 : 0.82);
-        const lineWidth = plies.map(p => p === ply ? 3 : 1);
-        Plotly.restyle(evalDiv, {{
-          'marker.opacity': [opacity],
-          'marker.line.width': [lineWidth],
-          'marker.line.color': [lineColor]
+        Plotly.restyle(sfDiv, {{
+          'marker.opacity': [plies.map(p => p === ply ? 1.0 : 0.82)],
+          'marker.line.width': [plies.map(p => p === ply ? 3 : (clsOutline[points[plies.indexOf(p)]?.cls] ? 2.5 : 1))],
+          'marker.line.color': [plies.map(p => p === ply ? highlightColor : (clsOutline[points[plies.indexOf(p)]?.cls] || '#9ca3af'))],
         }});
       }};
     }})();
     </script>
     """
 
-    html = html + eval_chart_html
+    # Unified highlight dispatcher called by the board on every ply change
+    if wdl_data or eval_data:
+        charts_html += """
+    <script>
+    window.updateEvalHighlight = function(ply) {
+      if (typeof window._updateWdlHighlight === 'function') window._updateWdlHighlight(ply);
+      if (typeof window._updateSfHighlight  === 'function') window._updateSfHighlight(ply);
+    };
+    </script>
+    """
 
-    # Height: board + controls + move list + optional eval chart
-    render_html_iframe(html, height=size + 280 + eval_extra_height)
+    html = html + charts_html
+
+    # Height: board + controls + move list + charts
+    render_html_iframe(html, height=size + 280 + extra_height)
 
 
 def render_pgn_viewer(

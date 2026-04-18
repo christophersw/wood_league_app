@@ -8,7 +8,7 @@ import pandas as pd
 from sqlalchemy import select
 
 from app.storage.database import get_session, init_db
-from app.storage.models import Game, GameAnalysis, MoveAnalysis
+from app.storage.models import Game, GameAnalysis, MoveAnalysis, Lc0GameAnalysis, Lc0MoveAnalysis
 
 
 @dataclass
@@ -22,7 +22,7 @@ class GameAnalysisData:
     date: str = ""
     time_control: str = ""
     url: str = ""
-    # Per-player accuracy stats (None when not yet analyzed by Stockfish)
+    # Stockfish stats (None when not yet analyzed)
     white_accuracy: float | None = None
     black_accuracy: float | None = None
     white_acpl: float | None = None
@@ -34,6 +34,22 @@ class GameAnalysisData:
     black_mistakes: int | None = None
     black_inaccuracies: int | None = None
     engine_depth: int | None = None
+    # Lc0 WDL data (None when not yet analyzed by Lc0)
+    lc0_moves: pd.DataFrame | None = None
+    lc0_white_win_prob: float | None = None
+    lc0_white_draw_prob: float | None = None
+    lc0_white_loss_prob: float | None = None
+    lc0_black_win_prob: float | None = None
+    lc0_black_draw_prob: float | None = None
+    lc0_black_loss_prob: float | None = None
+    lc0_white_blunders: int | None = None
+    lc0_white_mistakes: int | None = None
+    lc0_white_inaccuracies: int | None = None
+    lc0_black_blunders: int | None = None
+    lc0_black_mistakes: int | None = None
+    lc0_black_inaccuracies: int | None = None
+    lc0_engine_nodes: int | None = None
+    lc0_network_name: str | None = None
 
 
 class AnalysisService:
@@ -55,7 +71,6 @@ class AnalysisService:
             if db_game.played_at:
                 date = db_game.played_at.strftime("%Y-%m-%d %H:%M")
 
-            # Resolve PGN headers for fields not in DB
             game = chess.pgn.read_game(io.StringIO(pgn_text)) if pgn_text else None
             if game is None:
                 return None
@@ -69,23 +84,30 @@ class AnalysisService:
                 time_control = game.headers.get("TimeControl", "")
             url = game.headers.get("Link", "")
 
-            # Try to load real Stockfish analysis
+            # Load Stockfish analysis
             ga = session.execute(
                 select(GameAnalysis).where(GameAnalysis.game_id == game_id)
             ).scalar_one_or_none()
+
+            # Load Lc0 WDL analysis
+            lga = session.execute(
+                select(Lc0GameAnalysis).where(Lc0GameAnalysis.game_id == game_id)
+            ).scalar_one_or_none()
+
+            lc0_moves_df: pd.DataFrame | None = None
+            if lga is not None and lga.analyzed_at is not None and lga.moves:
+                lc0_moves_df = _lc0_moves_from_db(lga.moves)
+
+            # Extract Lc0 scalars before session closes
+            lc0_kwargs = _lc0_summary_kwargs(lga)
 
             if ga is not None and ga.analyzed_at is not None and ga.moves:
                 moves_df = _moves_from_db(ga.moves)
                 return GameAnalysisData(
                     game_id=game_id,
-                    white=white,
-                    black=black,
-                    result=result,
-                    pgn=pgn_text,
-                    moves=moves_df,
-                    date=date,
-                    time_control=time_control,
-                    url=url,
+                    white=white, black=black, result=result,
+                    pgn=pgn_text, moves=moves_df,
+                    date=date, time_control=time_control, url=url,
                     white_accuracy=ga.white_accuracy,
                     black_accuracy=ga.black_accuracy,
                     white_acpl=ga.white_acpl,
@@ -97,36 +119,93 @@ class AnalysisService:
                     black_mistakes=ga.black_mistakes,
                     black_inaccuracies=ga.black_inaccuracies,
                     engine_depth=ga.engine_depth,
+                    lc0_moves=lc0_moves_df,
+                    **lc0_kwargs,
                 )
 
-        # Fallback: build move list from PGN without engine evals
+            # No Stockfish analysis — build move list from PGN, attach Lc0 if present
+            lc0_by_ply: dict[int, pd.Series] = {}
+            if lc0_moves_df is not None and not lc0_moves_df.empty:
+                for _, row in lc0_moves_df.iterrows():
+                    lc0_by_ply[int(row["ply"])] = row
+
         board = game.board()
         rows: list[dict] = []
         for ply, move in enumerate(game.mainline_moves(), start=1):
             san = board.san(move)
             board.push(move)
+            lm = lc0_by_ply.get(ply)
             rows.append({
                 "ply": ply,
                 "san": san,
                 "fen": board.fen(),
-                "cp_eval": None,
-                "best_move": "",
-                "arrow_uci": "",
+                "cp_eval": float(lm["cp_equiv"]) if lm is not None else None,
+                "best_move": str(lm["best_move"]) if lm is not None else "",
+                "arrow_uci": str(lm["arrow_uci"]) if lm is not None else "",
                 "cpl": None,
-                "classification": None,
+                "classification": str(lm["classification"]) if lm is not None else None,
             })
 
         return GameAnalysisData(
             game_id=game_id,
-            white=white,
-            black=black,
-            result=result,
+            white=white, black=black, result=result,
             pgn=pgn_text,
             moves=pd.DataFrame(rows),
-            date=date,
-            time_control=time_control,
-            url=url,
+            date=date, time_control=time_control, url=url,
+            lc0_moves=lc0_moves_df,
+            **lc0_kwargs,
         )
+
+
+def _lc0_summary_kwargs(lga: "Lc0GameAnalysis | None") -> dict:
+    """Extract scalar Lc0 summary fields for GameAnalysisData kwargs."""
+    if lga is None:
+        return {
+            "lc0_white_win_prob": None, "lc0_white_draw_prob": None,
+            "lc0_white_loss_prob": None, "lc0_black_win_prob": None,
+            "lc0_black_draw_prob": None, "lc0_black_loss_prob": None,
+            "lc0_white_blunders": None, "lc0_white_mistakes": None,
+            "lc0_white_inaccuracies": None, "lc0_black_blunders": None,
+            "lc0_black_mistakes": None, "lc0_black_inaccuracies": None,
+            "lc0_engine_nodes": None, "lc0_network_name": None,
+        }
+    return {
+        "lc0_white_win_prob": lga.white_win_prob,
+        "lc0_white_draw_prob": lga.white_draw_prob,
+        "lc0_white_loss_prob": lga.white_loss_prob,
+        "lc0_black_win_prob": lga.black_win_prob,
+        "lc0_black_draw_prob": lga.black_draw_prob,
+        "lc0_black_loss_prob": lga.black_loss_prob,
+        "lc0_white_blunders": lga.white_blunders,
+        "lc0_white_mistakes": lga.white_mistakes,
+        "lc0_white_inaccuracies": lga.white_inaccuracies,
+        "lc0_black_blunders": lga.black_blunders,
+        "lc0_black_mistakes": lga.black_mistakes,
+        "lc0_black_inaccuracies": lga.black_inaccuracies,
+        "lc0_engine_nodes": lga.engine_nodes,
+        "lc0_network_name": lga.network_name,
+    }
+
+
+def _lc0_moves_from_db(move_rows: list["Lc0MoveAnalysis"]) -> pd.DataFrame:
+    sorted_moves = sorted(move_rows, key=lambda m: m.ply)
+    rows = [
+        {
+            "ply": m.ply,
+            "san": m.san,
+            "fen": m.fen,
+            "wdl_win": m.wdl_win,
+            "wdl_draw": m.wdl_draw,
+            "wdl_loss": m.wdl_loss,
+            "cp_equiv": m.cp_equiv,
+            "best_move": m.best_move,
+            "arrow_uci": m.arrow_uci,
+            "move_win_delta": m.move_win_delta,
+            "classification": m.classification,
+        }
+        for m in sorted_moves
+    ]
+    return pd.DataFrame(rows)
 
 
 def _moves_from_db(move_rows: list[MoveAnalysis]) -> pd.DataFrame:

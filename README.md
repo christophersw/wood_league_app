@@ -1,11 +1,11 @@
 # Woodland Chess
 
-A Streamlit chess analytics app for club and personal game history, opening analysis, and Stockfish-powered game review.
+A Streamlit chess analytics app for club and personal game history, opening analysis, and engine-powered game review.
 
 Pages:
 - **My History** — rating trend, recent games, opening distribution
 - **Game Search** — AI-powered and keyword search across all games
-- **Game Analysis** — move-by-move board with eval chart, best-move arrows, and accuracy stats
+- **Game Analysis** — move-by-move board with best-move arrows, accuracy stats, and a WDL probability chart (Lc0) or centipawn eval chart (Stockfish)
 
 ---
 
@@ -35,6 +35,9 @@ Create a `.env` file in the project root (or set these in your shell / Railway d
 | `STOCKFISH_PATH` | No | auto-detected | Full path to Stockfish binary; auto-detected from `PATH` if omitted |
 | `ANALYSIS_DEPTH` | No | `20` | Stockfish search depth per position |
 | `ANALYSIS_THREADS` | No | `1` | CPU threads Stockfish uses per game |
+| `LC0_PATH` | No | — | Full path to the `lc0` binary; required to run Lc0 WDL analysis |
+| `LC0_NODES` | No | `800` | MCTS node budget per position for Lc0 (higher = stronger, slower) |
+| `LC0_NETWORK` | No | — | Optional: path to a specific Lc0 network weights file |
 | `AUTH_ENABLED` | No | `false` | Enable login-gated access |
 | `AUTH_BOOTSTRAP_ADMIN_EMAIL` | No | — | Admin account created on first startup when auth is enabled |
 | `AUTH_BOOTSTRAP_ADMIN_PASSWORD` | No | — | Password for the bootstrap admin |
@@ -163,17 +166,100 @@ If a worker is killed mid-job, its jobs are left in `running` state. On the next
 
 ---
 
+## Lc0 (Leela Chess Zero) WDL Analysis
+
+Leela Chess Zero is a neural-network chess engine that, unlike Stockfish, outputs **native Win/Draw/Loss probabilities** directly from its value head. This means draw probability is a first-class signal — something Stockfish cannot produce without post-processing. The Lc0 analysis pipeline runs alongside the Stockfish pipeline; both share the same job queue and database, and both can be run independently.
+
+### What Lc0 produces
+
+Lc0 is invoked via the UCI protocol with `UCI_ShowWDL=true`. After each position evaluation it appends a WDL triple to the `info` line:
+
+```
+info depth 10 seldepth 15 time 380 nodes 800 score cp 23 wdl 412 347 241 ...
+```
+
+The three values are **permille** (thousandths), always summing to 1000:
+
+| Value | Meaning | Example above |
+|---|---|---|
+| `wdl_win` | Win probability for the side to move | 41.2% |
+| `wdl_draw` | Draw probability | 34.7% |
+| `wdl_loss` | Loss probability for the side to move | 24.1% |
+
+All WDL values are stored from **White's perspective** in the database. A position where White has 60% win chance, 30% draw, and 10% loss probability is stored as `wdl_win=600, wdl_draw=300, wdl_loss=100`.
+
+### Node budget vs. depth
+
+Lc0 does not use fixed-depth alpha-beta search. Instead, it runs **Monte Carlo Tree Search (MCTS)** up to a configurable node budget (`LC0_NODES`). More nodes = stronger play, but analysis time scales roughly linearly with node count.
+
+| Nodes | Approximate time/position | Use case |
+|---|---|---|
+| 200–400 | ~0.1–0.3s | Quick bulk pass, weaker analysis |
+| 800 | ~0.5–1s | Default; good balance |
+| 2000–5000 | ~2–5s | Deep review of critical games |
+| 10000+ | 10s+ | Near-engine-strength analysis |
+
+Hardware matters significantly: Lc0 benefits from GPU acceleration (Metal on Apple Silicon/Intel Mac, CUDA on NVIDIA, OpenCL on AMD). On CPU-only it is considerably slower than Stockfish at equivalent quality.
+
+### Running Lc0 analysis
+
+Analysis is the same two-step process as Stockfish: enqueue jobs, then run the worker.
+
+#### Step 1 — Enqueue
+
+```bash
+python -m app.ingest.run_lc0_worker --enqueue --lc0-path /path/to/lc0
+```
+
+This scans the database for all games that do not yet have an `engine='lc0'` job and creates one for each. Safe to re-run — already-queued games are skipped.
+
+#### Step 2 — Run the worker
+
+```bash
+python -m app.ingest.run_lc0_worker --lc0-path /path/to/lc0
+```
+
+Or combine both steps:
+
+```bash
+python -m app.ingest.run_lc0_worker --enqueue --lc0-path /path/to/lc0 --nodes 800
+```
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--lc0-path /path/to/lc0` | Path to the `lc0` binary (or set `LC0_PATH` in `.env`) |
+| `--nodes N` | MCTS node budget per position (default `800`; or set `LC0_NODES`) |
+| `--enqueue` | Enqueue all un-analyzed games before starting the worker |
+| `--limit N` | Stop after processing N games |
+| `--poll-interval N` | Seconds between queue checks (default `5`; use `0` to exit when empty) |
+
+#### Finding your Lc0 binary
+
+```bash
+# macOS via Homebrew
+brew install lc0
+
+# Check where it is
+which lc0
+```
+
+The default network weights bundled with Lc0 (typically `maia` or `BT4`) work well. You can download stronger networks from [lczero.org/networks](https://lczero.org/networks/) and point to them via `LC0_NETWORK`.
+
+---
+
 ## How Analysis Calculations Work
 
-This section documents every formula used to evaluate moves and compute player accuracy scores. All formulas match the [Lichess open-source implementation](https://github.com/lichess-org/lila/blob/master/modules/analyse/src/main/AccuracyPercent.scala).
+This section documents every formula used to evaluate moves and compute player accuracy scores.
 
-### Engine evaluation
+### Stockfish engine evaluation
 
 Each position is evaluated by [Stockfish](https://stockfishchess.org/) (via [python-chess](https://python-chess.readthedocs.io/)) at a configurable search depth (default 20). The engine is called with `multipv=2` so the top two candidate moves are returned — this is required for brilliant and great move detection. The engine returns scores in **centipawns** (cp) — hundredths of a pawn — from White's perspective. Positive values favour White; negative values favour Black.
 
 **Mate scores** are encoded by `python-chess` using `score(mate_score=10000)`. A forced mate in 5 for White becomes `+10000 − 5 = +9995` cp; a forced mate in 3 against White becomes `−10000 + 3 = −9997` cp. This preserves the distance-to-mate while keeping all evaluations on a single numeric axis.
 
-### Per-move analysis loop
+### Per-move analysis loop (Stockfish)
 
 For every move in the game, the engine evaluates the position **before** the move is played and **after**. This yields two data points per move:
 
@@ -287,9 +373,9 @@ Moves are classified using a combination of centipawn loss, material sacrifice d
 
 > **Note on Chess.com vs Lichess:** Chess.com uses an **Expected Points** model with rating-adjusted thresholds rather than fixed CPL cutoffs. Lichess does not perform automated brilliant/great move detection (annotations are manual only). Our classification uses fixed CPL thresholds (matching Lichess) combined with a Chess.com-inspired heuristic for brilliant/great detection.
 
-### Persisted data
+### Persisted data (Stockfish)
 
-After analysis, the following are stored in the database per game:
+After Stockfish analysis, the following are stored per game:
 
 | Table | Key fields |
 |---|---|
@@ -298,6 +384,91 @@ After analysis, the following are stored in the database per game:
 | `game_participants` | `quality_score` (= accuracy), `acpl`, `blunder_count`, `mistake_count`, `inaccuracy_count` |
 
 When stored Stockfish accuracy is unavailable (e.g. for games not yet fully analyzed), the Game Analysis page falls back to a **derived accuracy** computed from the stored per-move CPL values using the same Win% → per-move accuracy → harmonic mean pipeline described above.
+
+---
+
+## Lc0 Analysis Calculations
+
+This section documents the formulas used by the Lc0 WDL analysis pipeline (`app/services/lc0_service.py`).
+
+### WDL output and perspective
+
+Lc0 outputs WDL from the **side-to-move's perspective**. `python-chess` returns this as an `engine.Wdl` object with `.wins`, `.draws`, `.losses` relative to the side to move. The service converts all values to **White's perspective** before storage:
+
+- When White is to move: WDL is already White-perspective — store as-is.
+- When Black is to move: flip wins and losses (`stored_win = engine_loss`, `stored_loss = engine_win`), draw is unchanged.
+
+This means `lc0_move_analysis.wdl_win` always represents White's win probability at that position, regardless of whose turn it was.
+
+### Q value and centipawn equivalent
+
+In addition to WDL, Lc0 produces a **Q value** in the range [−1, 1] — the mean expected outcome across all MCTS playouts, where +1 = certain White win, −1 = certain White loss. Q is converted to an approximate centipawn equivalent for display and for use in the fallback eval chart when Lc0 is the only engine available:
+
+$$
+\text{cp}_{\text{equiv}} = 111.71 \times \tan(1.56 \times Q)
+$$
+
+This formula is the inverse of the standard logistic mapping used by many engines. Q is clamped to ±0.9999 before conversion to avoid the singularity at Q = ±1. At Q = 0 the result is 0 cp (equal); at Q ≈ 0.9 it yields roughly +800 cp (clearly winning).
+
+| Q value | cp equivalent | Meaning |
+|---|---|---|
+| 0.0 | 0 | Equal position |
+| ±0.1 | ≈ ±11 | Slight advantage |
+| ±0.3 | ≈ +35 | Clear advantage |
+| ±0.6 | ≈ +80 | Large advantage |
+| ±0.9 | ≈ +800 | Near-decisive |
+| ±0.9999 | capped | Forced win/loss |
+
+**Source:** [Lc0 documentation — Q to centipawn conversion](https://lczero.org/blog/)
+
+### Move quality: Win% delta
+
+Rather than centipawn loss, Lc0 move quality is measured in **win-percentage loss** from the mover's perspective:
+
+$$
+\Delta\text{Win\%} = \max\!\big(0,\;\text{Win\%}_{\text{mover,before}} - \text{Win\%}_{\text{mover,after}}\big)
+$$
+
+- **Before the move:** the engine is queried on the position and returns WDL relative to the side to move. The mover's win% = `wdl_win / 10.0` (converting permille to percent).
+- **After the move:** the board is advanced, the engine is queried again, and it returns WDL relative to the new side to move (the opponent). The mover's resulting win% = `opponent_wdl_loss / 10.0` (i.e. the opponent's loss is the mover's win from the opponent's WDL output).
+
+This two-query approach is identical in structure to the Stockfish before/after loop, except the currency is win probability instead of centipawns.
+
+### Lc0 move classification
+
+Thresholds are in win-percentage-loss units, calibrated to produce roughly equivalent classification rates to the Stockfish CPL thresholds:
+
+| Classification | Symbol | Win% loss criterion |
+|---|---|---|
+| Brilliant | !! | Δ ≤ 1%, is a capture, mover's win% before < 70%, and best alternative Δ ≥ 10% worse |
+| Great | ! | Δ ≤ 1%, and best alternative Δ ≥ 6% worse |
+| Best | — | Δ ≤ 1%, neither brilliant nor great |
+| Excellent | — | 1% < Δ < 2% |
+| Inaccuracy | ?! | 2% ≤ Δ < 5% |
+| Mistake | ? | 5% ≤ Δ < 10% |
+| Blunder | ?? | Δ ≥ 10% |
+
+The alternative move's quality is measured using `multipv=2`: the engine returns both the best move and the second-best move, and their win% difference determines whether the position was an "only good move" situation.
+
+### Why draw probability matters
+
+Stockfish's centipawn score compresses all outcomes onto a single axis and cannot distinguish between:
+
+- A genuinely drawn position (`wdl 50 900 50` — both sides have minimal winning chances)
+- A sharp, double-edged position (`wdl 450 100 450` — either side could win)
+
+Both positions might evaluate near 0 cp, but they call for completely different play. Lc0's explicit draw probability exposes this distinction. The stacked area WDL chart in the Game Analysis page shows all three probabilities simultaneously, giving a richer picture of how the game evolved.
+
+### Persisted data (Lc0)
+
+After Lc0 analysis, the following are stored per game in dedicated tables (Stockfish tables are not modified):
+
+| Table | Key fields |
+|---|---|
+| `lc0_game_analysis` | `white_win_prob`, `white_draw_prob`, `white_loss_prob` (same for black), `white_blunders`, `white_mistakes`, `white_inaccuracies` (same for black), `engine_nodes`, `network_name`, `analyzed_at` |
+| `lc0_move_analysis` | `ply`, `san`, `fen`, `wdl_win`, `wdl_draw`, `wdl_loss` (white-perspective permille), `cp_equiv`, `best_move` (UCI), `arrow_uci`, `move_win_delta`, `classification` |
+
+The `analysis_jobs` table uses an `engine` column (`'stockfish'` or `'lc0'`) to route jobs to the correct worker. Both workers claim jobs independently using `SELECT FOR UPDATE SKIP LOCKED`.
 
 ---
 
