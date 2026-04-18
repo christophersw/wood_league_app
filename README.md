@@ -165,11 +165,11 @@ If a worker is killed mid-job, its jobs are left in `running` state. On the next
 
 ## How Analysis Calculations Work
 
-This section documents every formula used to evaluate moves and compute player accuracy scores.
+This section documents every formula used to evaluate moves and compute player accuracy scores. All formulas match the [Lichess open-source implementation](https://github.com/lichess-org/lila/blob/master/modules/analyse/src/main/AccuracyPercent.scala).
 
 ### Engine evaluation
 
-Each position is evaluated by [Stockfish](https://stockfishchess.org/) (via [python-chess](https://python-chess.readthedocs.io/)) at a configurable search depth (default 20). The engine returns a score in **centipawns** (cp) — hundredths of a pawn — from White's perspective. Positive values favour White; negative values favour Black.
+Each position is evaluated by [Stockfish](https://stockfishchess.org/) (via [python-chess](https://python-chess.readthedocs.io/)) at a configurable search depth (default 20). The engine is called with `multipv=2` so the top two candidate moves are returned — this is required for brilliant and great move detection. The engine returns scores in **centipawns** (cp) — hundredths of a pawn — from White's perspective. Positive values favour White; negative values favour Black.
 
 **Mate scores** are encoded by `python-chess` using `score(mate_score=10000)`. A forced mate in 5 for White becomes `+10000 − 5 = +9995` cp; a forced mate in 3 against White becomes `−10000 + 3 = −9997` cp. This preserves the distance-to-mate while keeping all evaluations on a single numeric axis.
 
@@ -212,14 +212,14 @@ where `cp` is the centipawn evaluation **from the mover's perspective** (positiv
 Each move receives an accuracy score (0–100%) based on how much Win% the mover lost. The formula is applied to the Win% **before** and **after** the move, both from the mover's perspective:
 
 $$
-\text{Accuracy\%} = 103.1668 \times e^{-0.04354 \times (\text{Win\%}_{\text{before}} - \text{Win\%}_{\text{after}})} - 3.1669 + 1
+\text{Accuracy\%} = 103.1668100711649 \times e^{-0.04354415386753951 \times (\text{Win\%}_{\text{before}} - \text{Win\%}_{\text{after}})} - 3.166924740191411 + 1
 $$
 
 The result is clamped to [0, 100]. If the mover's Win% did not decrease (i.e. the engine considers the position no worse), accuracy is 100%.
 
-The `+1` term is an **uncertainty bonus** that accounts for imperfect analysis depth — at finite depth, the engine may not have found the absolute best move, so a small benefit of the doubt is given. This matches the Lichess implementation.
+The `+1` term is an **uncertainty bonus** that accounts for imperfect analysis depth — at finite depth, the engine may not have found the absolute best move, so a small benefit of the doubt is given. This matches the Lichess implementation exactly.
 
-The formula coefficients (`103.1668`, `0.04354`, `3.1669`) were derived via `scipy.optimize.curve_fit` against a hand-crafted accuracy curve:
+The formula coefficients were derived via `scipy.optimize.curve_fit` against a hand-crafted accuracy curve:
 
 | Win% loss | Expected Accuracy |
 |---|---|
@@ -235,20 +235,27 @@ The formula coefficients (`103.1668`, `0.04354`, `3.1669`) were derived via `sci
 
 ### Game Accuracy (aggregation)
 
-Individual move accuracies are aggregated into a single game accuracy score per player using the **harmonic mean**:
+Individual move accuracies are aggregated into a single game accuracy score per player using the same two-tier formula as Lichess: a blend of **volatility-weighted arithmetic mean** and **harmonic mean**:
 
 $$
-\text{Game Accuracy} = \frac{n}{\displaystyle\sum_{i=1}^{n} \frac{1}{\max(\text{MoveAcc}_i,\;\varepsilon)}}
+\text{Game Accuracy} = \frac{\text{WeightedMean} + \text{HarmonicMean}}{2}
 $$
 
-where $n$ is the number of moves by that player and $\varepsilon = 0.001$ prevents division by zero.
+**Volatility weighting** assigns each move a weight equal to the standard deviation of Win% within a sliding window of recent positions (window size = `max(2, min(8, moves ÷ 10))`), clamped to [0.5, 12]. Moves played in volatile, sharp positions — where the win chance is swinging — receive higher weight.
 
-The harmonic mean was chosen because it:
-- Penalises bad moves more heavily than an arithmetic mean would
-- Prevents a single blunder from being masked by many good moves
-- Better reflects the "weakest-link" nature of chess (one bad move can lose the game)
+**Harmonic mean** penalises bad moves more heavily than an arithmetic mean:
 
-Lichess uses a more complex aggregation — a blend of volatility-weighted mean and harmonic mean with sliding windows ([source](https://github.com/lichess-org/lila/blob/master/modules/analyse/src/main/AccuracyPercent.scala#L81-L112)) — but our harmonic-mean approach produces comparable results for typical games.
+$$
+\text{HarmonicMean} = \frac{n}{\displaystyle\sum_{i=1}^{n} \frac{1}{\max(\text{MoveAcc}_i,\;\varepsilon)}}
+$$
+
+where $\varepsilon = 0.001$ prevents division by zero.
+
+This combination means:
+- Mistakes in critical, volatile positions matter more than the same CPL in a quiet, already-decided position.
+- A single blunder cannot be masked by many subsequent good moves (harmonic mean property).
+
+**Source:** [lichess-org/lila — `AccuracyPercent.scala`](https://github.com/lichess-org/lila/blob/master/modules/analyse/src/main/AccuracyPercent.scala)
 
 ### Average Centipawn Loss (ACPL)
 
@@ -262,17 +269,23 @@ This is the traditional metric for measuring playing strength. Lower is better; 
 
 ### Move classification
 
-Moves are classified by their centipawn loss using fixed thresholds:
+Moves are classified using a combination of centipawn loss, material sacrifice detection, and the gap to the second-best engine move:
 
-| Classification | CPL range |
-|---|---|
-| Excellent | 0–9 |
-| Good | 10–49 |
-| Inaccuracy | 50–99 |
-| Mistake | 100–299 |
-| Blunder | 300+ |
+| Classification | Symbol | Criteria |
+|---|---|---|
+| Brilliant | !! | CPL < 10, is a capture (material sacrifice), position not already clearly winning (Win% < 70%), and all alternatives are ≥ 150 cp worse |
+| Great | ! | CPL < 10, and all alternatives are ≥ 80 cp worse (only good move) |
+| Best | — | CPL < 10, neither brilliant nor great |
+| Excellent | — | CPL 10–49 |
+| Inaccuracy | ?! | CPL 50–99 |
+| Mistake | ? | CPL 100–299 |
+| Blunder | ?? | CPL ≥ 300 |
 
-> **Note:** Chess.com's newer "Classification V2" uses **Expected Points** (a win-probability model that factors in player rating) rather than fixed CPL thresholds. Our classification uses the simpler CPL-based approach, which is engine-rating-independent. See [Chess.com's documentation](https://support.chess.com/en/articles/8572705-how-are-moves-classified-what-is-a-blunder-or-brilliant-etc) for details on their model.
+**Brilliant moves** require a capture because a sacrifice that turns out to be best is the hallmark of a truly unexpected move. The position must not already be clearly winning (Win% < 70%) to prevent trivial mopping-up moves from earning `!!`. This mirrors the spirit of Chess.com's brilliant move detection.
+
+**Great moves** capture the "only good move" scenario — the player found the right path when all alternatives were significantly worse, regardless of whether material was sacrificed.
+
+> **Note on Chess.com vs Lichess:** Chess.com uses an **Expected Points** model with rating-adjusted thresholds rather than fixed CPL cutoffs. Lichess does not perform automated brilliant/great move detection (annotations are manual only). Our classification uses fixed CPL thresholds (matching Lichess) combined with a Chess.com-inspired heuristic for brilliant/great detection.
 
 ### Persisted data
 

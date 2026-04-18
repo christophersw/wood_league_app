@@ -21,7 +21,7 @@ def _move_accuracy(wp_before: float, wp_after: float) -> float:
     if wp_after >= wp_before:
         return 100.0
     win_diff = wp_before - wp_after
-    raw = 103.1668 * math.exp(-0.04354 * win_diff) - 3.1669 + 1
+    raw = 103.1668100711649 * math.exp(-0.04354415386753951 * win_diff) - 3.166924740191411 + 1
     return max(0.0, min(100.0, raw))
 
 
