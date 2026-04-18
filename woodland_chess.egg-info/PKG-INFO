@@ -10,6 +10,7 @@ Requires-Dist: pandas>=2.2.0
 Requires-Dist: sqlalchemy>=2.0.29
 Requires-Dist: psycopg[binary]>=3.2.0
 Requires-Dist: python-chess>=1.999
+Requires-Dist: streamlit-plotly-events>=0.0.6
 Requires-Dist: passlib[bcrypt]>=1.7.4
 Requires-Dist: pydantic-settings>=2.8.0
 Requires-Dist: requests>=2.31.0
@@ -17,7 +18,7 @@ Requires-Dist: requests>=2.31.0
 # Woodland Chess MVP
 
 Two-page Streamlit MVP:
-- My History
+- Opening Analysis
 - Game Analysis
 - Game Search
 
@@ -37,11 +38,11 @@ Two-page Streamlit MVP:
    - `INGEST_MONTH_LIMIT=24` (optional; set `0` for full history)
 2. Run manual sync:
    python -m app.ingest.run_sync
-3. Open My History and use the `Chess.com Sync` expander to trigger sync from UI.
+3. Run sync from CLI and then open Opening Analysis to review club/player opening trends.
 
 ## Routing
 
-- My History: /my-history
+- Opening Analysis: /opening-analysis
 - Game Analysis: /game-analysis?game_id=<id>
 - Game Search: /game-search
 
@@ -50,8 +51,44 @@ Two-page Streamlit MVP:
 - Set `ANTHROPIC_API_KEY` in `.env` to enable natural-language to SQL game search.
 - Optional: set `ANTHROPIC_MODEL` (defaults to `claude-3-haiku-20240307`).
 
+## Authentication (Phase 6)
+
+- Auth is optional and disabled by default.
+- Enable with:
+   - `AUTH_ENABLED=true`
+   - `AUTH_BOOTSTRAP_ADMIN_EMAIL=you@example.com`
+   - `AUTH_BOOTSTRAP_ADMIN_PASSWORD=your-password`
+   - `AUTH_SIGNING_KEY=long-random-secret`
+- On first startup with auth enabled, the admin user is auto-created if no users exist.
+- Admins can create member/admin users from the sidebar `Invite Member` section.
+- Auth is persisted in a signed browser cookie; game URLs remain clean and shareable (`/game-analysis?game_id=<id>`).
+
 ## Notes
 
 - If no database URL is configured, the app uses local SQLite (`woodland_chess.db`).
 - Demo data is used only when no player/game rows exist yet.
 - Configure `DATABASE_URL` to point to Railway Postgres for shared real data.
+
+## Deploy To Railway
+
+1. Push this repo to GitHub.
+2. In Railway, create a new project and select `Deploy from GitHub repo`.
+3. Add these environment variables in Railway:
+   - `DATABASE_URL` (from Railway Postgres, if attached)
+   - `CHESS_COM_USERNAMES`
+   - `INGEST_MONTH_LIMIT`
+   - `CHESS_COM_USER_AGENT` (optional)
+   - `ANTHROPIC_API_KEY` (optional, enables AI search)
+   - `ANTHROPIC_MODEL` (optional)
+   - `AUTH_ENABLED` (`true` or `false`)
+   - `AUTH_BOOTSTRAP_ADMIN_EMAIL` (required if auth enabled)
+   - `AUTH_BOOTSTRAP_ADMIN_PASSWORD` (required if auth enabled)
+   - `AUTH_SIGNING_KEY` (required in production if auth enabled)
+4. Deploy. Railway uses `railway.toml` to:
+   - install dependencies with `pip install .`
+   - run Streamlit on `0.0.0.0:$PORT` in headless mode
+
+### Important
+
+- Do not set `PORT` manually on Railway; Railway injects it automatically.
+- If `AUTH_ENABLED=true`, always set a strong `AUTH_SIGNING_KEY`.

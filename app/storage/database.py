@@ -45,34 +45,42 @@ def init_db() -> None:
             _db_initialized = True
 
 
+def _add_missing_columns(table: str, column_defs: dict[str, str]) -> set[str]:
+    """Add any missing columns to a table. Returns the set of columns that were added."""
+    inspector = inspect(ENGINE)
+    if not inspector.has_table(table):
+        return set()
+    existing = {col["name"] for col in inspector.get_columns(table)}
+    missing = {name: ddl for name, ddl in column_defs.items() if name not in existing}
+    if missing:
+        with ENGINE.begin() as conn:
+            for name, ddl in missing.items():
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+    return set(missing.keys())
+
+
 def _run_lightweight_migrations() -> None:
     inspector = inspect(ENGINE)
 
+    # games table
+    games_added = _add_missing_columns("games", {
+        "white_username": "VARCHAR(120)",
+        "black_username": "VARCHAR(120)",
+        "white_rating": "INTEGER",
+        "black_rating": "INTEGER",
+        "result_pgn": "VARCHAR(16)",
+        "winner_username": "VARCHAR(120)",
+        "lichess_opening": "VARCHAR(200)",
+        "opening_ply_1": "VARCHAR(32)",
+        "opening_ply_2": "VARCHAR(32)",
+        "opening_ply_3": "VARCHAR(32)",
+        "opening_ply_4": "VARCHAR(32)",
+        "opening_ply_5": "VARCHAR(32)",
+    })
+
     if inspector.has_table("games"):
-        existing = {col["name"] for col in inspector.get_columns("games")}
-        column_defs = {
-            "white_username": "VARCHAR(120)",
-            "black_username": "VARCHAR(120)",
-            "white_rating": "INTEGER",
-            "black_rating": "INTEGER",
-            "result_pgn": "VARCHAR(16)",
-            "winner_username": "VARCHAR(120)",
-            "lichess_opening": "VARCHAR(200)",
-            "opening_ply_1": "VARCHAR(32)",
-            "opening_ply_2": "VARCHAR(32)",
-            "opening_ply_3": "VARCHAR(32)",
-            "opening_ply_4": "VARCHAR(32)",
-            "opening_ply_5": "VARCHAR(32)",
-        }
-        missing_columns = {name: ddl for name, ddl in column_defs.items() if name not in existing}
-
-        if missing_columns:
-            with ENGINE.begin() as conn:
-                for name, ddl in missing_columns.items():
-                    conn.execute(text(f"ALTER TABLE games ADD COLUMN {name} {ddl}"))
-
-        # Backfill winner_username from result_pgn + white/black_username.
-        if "winner_username" in missing_columns or "winner_username" in existing:
+        existing_games = {col["name"] for col in inspector.get_columns("games")}
+        if "winner_username" in games_added or "winner_username" in existing_games:
             with ENGINE.begin() as conn:
                 conn.execute(text(
                     "UPDATE games SET winner_username = "
@@ -81,6 +89,35 @@ def _run_lightweight_migrations() -> None:
                     "ELSE NULL END "
                     "WHERE winner_username IS NULL AND result_pgn IS NOT NULL"
                 ))
+
+    # game_participants table
+    _add_missing_columns("game_participants", {
+        "mistake_count": "INTEGER",
+        "inaccuracy_count": "INTEGER",
+        "acpl": "FLOAT",
+    })
+
+    # game_analysis table
+    _add_missing_columns("game_analysis", {
+        "analyzed_at": "TIMESTAMP",
+        "engine_depth": "INTEGER",
+        "white_accuracy": "FLOAT",
+        "black_accuracy": "FLOAT",
+        "white_acpl": "FLOAT",
+        "black_acpl": "FLOAT",
+        "white_blunders": "INTEGER",
+        "white_mistakes": "INTEGER",
+        "white_inaccuracies": "INTEGER",
+        "black_blunders": "INTEGER",
+        "black_mistakes": "INTEGER",
+        "black_inaccuracies": "INTEGER",
+    })
+
+    # move_analysis table
+    _add_missing_columns("move_analysis", {
+        "cpl": "FLOAT",
+        "classification": "VARCHAR(16)",
+    })
 
 
 

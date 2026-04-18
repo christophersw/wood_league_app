@@ -58,6 +58,7 @@ class Game(Base):
     player: Mapped[Player] = relationship()
     analysis: Mapped["GameAnalysis | None"] = relationship(back_populates="game", uselist=False)
     participants: Mapped[list["GameParticipant"]] = relationship(back_populates="game", cascade="all, delete-orphan")
+    analysis_jobs: Mapped[list["AnalysisJob"]] = relationship(back_populates="game", cascade="all, delete-orphan")
 
 
 class GameParticipant(Base):
@@ -74,6 +75,9 @@ class GameParticipant(Base):
     result: Mapped[str] = mapped_column(String(32))
     quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     blunder_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mistake_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    inaccuracy_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    acpl: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     game: Mapped[Game] = relationship(back_populates="participants")
     player: Mapped[Player] = relationship()
@@ -85,6 +89,18 @@ class GameAnalysis(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     game_id: Mapped[str] = mapped_column(ForeignKey("games.id"), unique=True, index=True)
     summary_cp: Mapped[float] = mapped_column(Float, default=0.0)
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    engine_depth: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    white_accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    black_accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    white_acpl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    black_acpl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    white_blunders: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    white_mistakes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    white_inaccuracies: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    black_blunders: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    black_mistakes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    black_inaccuracies: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     game: Mapped[Game] = relationship(back_populates="analysis")
     moves: Mapped[list["MoveAnalysis"]] = relationship(back_populates="analysis", cascade="all, delete-orphan")
@@ -111,5 +127,25 @@ class MoveAnalysis(Base):
     cp_eval: Mapped[float] = mapped_column(Float)
     best_move: Mapped[str] = mapped_column(String(32), default="")
     arrow_uci: Mapped[str] = mapped_column(String(8), default="")
+    cpl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    classification: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     analysis: Mapped[GameAnalysis] = relationship(back_populates="moves")
+
+
+class AnalysisJob(Base):
+    __tablename__ = "analysis_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[str] = mapped_column(ForeignKey("games.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    depth: Mapped[int] = mapped_column(Integer, default=20)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    game: Mapped[Game] = relationship(back_populates="analysis_jobs")

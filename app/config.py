@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     auth_bootstrap_admin_password: str = ""
     auth_signing_key: str = ""
     auth_token_ttl_seconds: int = 604800
+    stockfish_path: str = ""
+    analysis_depth: int = 20
+    analysis_threads: int = 1
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
