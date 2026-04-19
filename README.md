@@ -2,6 +2,9 @@
 
 A Streamlit chess analytics app for club and personal game history, opening analysis, and engine-powered game review.
 
+Documentation:
+- [Database ERD](docs/database-erd.md)
+
 Pages:
 - **My History** — rating trend, recent games, opening distribution
 - **Game Search** — AI-powered and keyword search across all games

@@ -459,94 +459,47 @@ def keyword_game_search(query: str, limit: int = 200) -> pd.DataFrame:
 
     like = f"%{q}%"
     with get_session() as session:
-        has_participants = session.query(GameParticipant.id).limit(1).first() is not None
-
-        if has_participants:
-            rows = (
-                session.query(Game, GameParticipant, Player, GameAnalysis.summary_cp)
-                .join(GameParticipant, GameParticipant.game_id == Game.id)
-                .join(Player, Player.id == GameParticipant.player_id)
-                .outerjoin(GameAnalysis, GameAnalysis.game_id == Game.id)
-                .filter(
-                    or_(
-                        Player.username.ilike(like),
-                        GameParticipant.opponent_username.ilike(like),
-                        GameParticipant.result.ilike(like),
-                        GameParticipant.color.ilike(like),
-                        Game.time_control.ilike(like),
-                        Game.eco_code.ilike(like),
-                        Game.opening_name.ilike(like),
-                        Game.lichess_opening.ilike(like),
-                        Game.white_username.ilike(like),
-                        Game.black_username.ilike(like),
-                        Game.pgn.ilike(like),
-                    )
+        rows = (
+            session.query(Game, GameParticipant, Player, GameAnalysis.summary_cp)
+            .join(GameParticipant, GameParticipant.game_id == Game.id)
+            .join(Player, Player.id == GameParticipant.player_id)
+            .outerjoin(GameAnalysis, GameAnalysis.game_id == Game.id)
+            .filter(
+                or_(
+                    Player.username.ilike(like),
+                    GameParticipant.opponent_username.ilike(like),
+                    GameParticipant.result.ilike(like),
+                    GameParticipant.color.ilike(like),
+                    Game.time_control.ilike(like),
+                    Game.eco_code.ilike(like),
+                    Game.opening_name.ilike(like),
+                    Game.lichess_opening.ilike(like),
+                    Game.white_username.ilike(like),
+                    Game.black_username.ilike(like),
+                    Game.pgn.ilike(like),
                 )
-                .order_by(Game.played_at.desc())
-                .limit(limit)
-                .all()
             )
-        else:
-            # Legacy fallback for pre-participant datasets.
-            rows = (
-                session.query(Game, Player, GameAnalysis.summary_cp)
-                .join(Player, Player.id == Game.player_id)
-                .outerjoin(GameAnalysis, GameAnalysis.game_id == Game.id)
-                .filter(
-                    or_(
-                        Player.username.ilike(like),
-                        Game.opponent_name.ilike(like),
-                        Game.result.ilike(like),
-                        Game.color.ilike(like),
-                        Game.time_control.ilike(like),
-                        Game.eco_code.ilike(like),
-                        Game.opening_name.ilike(like),
-                        Game.lichess_opening.ilike(like),
-                        Game.white_username.ilike(like),
-                        Game.black_username.ilike(like),
-                        Game.pgn.ilike(like),
-                    )
-                )
-                .order_by(Game.played_at.desc())
-                .limit(limit)
-                .all()
-            )
+            .order_by(Game.played_at.desc())
+            .limit(limit)
+            .all()
+        )
 
-    data = []
-    if has_participants:
-        for game, participant, player, summary_cp in rows:
-            data.append(
-                {
-                    "game_id": game.id,
-                    "played_at": game.played_at,
-                    "player": player.username,
-                    "opponent": participant.opponent_username,
-                    "color": participant.color,
-                    "result": participant.result,
-                    "time_control": game.time_control,
-                    "opening": game.opening_name,
-                    "lichess_opening": game.lichess_opening,
-                    "pgn": game.pgn,
-                    "stockfish_cp": int(summary_cp or 0),
-                }
-            )
-    else:
-        for game, player, summary_cp in rows:
-            data.append(
-                {
-                    "game_id": game.id,
-                    "played_at": game.played_at,
-                    "player": player.username,
-                    "opponent": game.opponent_name,
-                    "color": game.color,
-                    "result": game.result,
-                    "time_control": game.time_control,
-                    "opening": game.opening_name,
-                    "lichess_opening": game.lichess_opening,
-                    "pgn": game.pgn,
-                    "stockfish_cp": int(summary_cp or 0),
-                }
-            )
+    data = [
+        {
+            "game_id": game.id,
+            "played_at": game.played_at,
+            "player": player.username,
+            "opponent": participant.opponent_username,
+            "color": participant.color,
+            "result": participant.result,
+            "time_control": game.time_control,
+            "opening": game.opening_name,
+            "lichess_opening": game.lichess_opening,
+            "pgn": game.pgn,
+            "stockfish_cp": int(summary_cp or 0),
+        }
+        for game, participant, player, summary_cp in rows
+    ]
     return pd.DataFrame(data)
 
 
