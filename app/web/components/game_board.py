@@ -422,17 +422,15 @@ def render_svg_game_viewer(
 
       const plies = points.map(p => p.ply);
       const evals = points.map(p => p.displayCp);
-      // Bar fill: white/black by sign; outline: red=blunder, orange=mistake, yellow=inaccuracy
-      const clsOutline = {{ blunder: '#ef4444', mistake: '#f97316', inaccuracy: '#eab308' }};
-      const colors = points.map(p => p.rawCp >= 0 ? '#f9fafb' : '#111111');
-      const lineColors = points.map(p => clsOutline[p.cls] || '#9ca3af');
-      const lineWidths = points.map(p => clsOutline[p.cls] ? 2.5 : 1);
-      const baseOpacity = evals.map(() => 0.82);
+      // Bar fill: classification color takes priority, then white/black by sign
+      const clsColor = {{ blunder: '#ef4444', mistake: '#f97316', inaccuracy: '#eab308' }};
+      const baseColors = points.map(p => clsColor[p.cls] || (p.rawCp >= 0 ? '#f9fafb' : '#111111'));
+      const baseOpacity = evals.map(() => 0.85);
 
       const trace = {{
         x: evals, y: plies, type: 'bar', orientation: 'h',
-        marker: {{ color: colors.slice(), opacity: baseOpacity.slice(),
-          line: {{ color: lineColors.slice(), width: lineWidths.slice() }} }},
+        marker: {{ color: baseColors.slice(), opacity: baseOpacity.slice(),
+          line: {{ color: '#9ca3af', width: 0.5 }} }},
         text: points.map(p => p.textLabel), textposition: 'outside',
         customdata: points.map(p => [p.rawCp, p.isMate, p.hoverText, p.cls, p.san]),
         hovertemplate: 'Ply %{{y}} %{{customdata[4]}}<br>%{{customdata[2]}}%{{customdata[3] ? " — " + customdata[3] : ""}}<extra></extra>',
@@ -460,11 +458,8 @@ def render_svg_game_viewer(
       }});
 
       window._updateSfHighlight = function(ply) {{
-        const highlightColor = '#f59e0b';
         Plotly.restyle(sfDiv, {{
-          'marker.opacity': [plies.map(p => p === ply ? 1.0 : 0.82)],
-          'marker.line.width': [plies.map(p => p === ply ? 3 : (clsOutline[points[plies.indexOf(p)]?.cls] ? 2.5 : 1))],
-          'marker.line.color': [plies.map(p => p === ply ? highlightColor : (clsOutline[points[plies.indexOf(p)]?.cls] || '#9ca3af'))],
+          'marker.opacity': [plies.map(p => p === ply ? 1.0 : 0.85)],
         }});
       }};
     }})();
