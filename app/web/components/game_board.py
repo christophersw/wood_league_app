@@ -238,7 +238,7 @@ def render_svg_game_viewer(
           }}
         }}
         // highlight current ply on eval chart
-        if (window._evalChart && typeof window.updateEvalHighlight === 'function') {{
+        if (typeof window.updateEvalHighlight === 'function') {{
           window.updateEvalHighlight(currentPly);
         }}
       }}
@@ -373,7 +373,7 @@ def render_svg_game_viewer(
         wdlDiv.on('plotly_click', function(data) {{
           if (data.points && data.points.length > 0) window.goTo(data.points[0].x);
         }});
-        if (typeof window.goTo === 'function') window.goTo(window.currentPly);
+        if (typeof window._chartReady === 'function') window._chartReady();
       }});
 
       window._updateWdlHighlight = function(ply) {{
@@ -454,7 +454,7 @@ def render_svg_game_viewer(
         sfDiv.on('plotly_click', function(data) {{
           if (data.points && data.points.length > 0) window.goTo(data.points[0].y);
         }});
-        if (typeof window.goTo === 'function') window.goTo(window.currentPly);
+        if (typeof window._chartReady === 'function') window._chartReady();
       }});
 
       window._updateSfHighlight = function(ply) {{
@@ -466,13 +466,20 @@ def render_svg_game_viewer(
     </script>
     """
 
-    # Unified highlight dispatcher called by the board on every ply change
+    # Unified highlight dispatcher called by the board on every ply change.
+    # Charts register themselves via window._chartReady(); the dispatcher fires
+    # immediately for any chart that loads after the board has already moved.
     if wdl_data or eval_data:
         charts_html += """
     <script>
     window.updateEvalHighlight = function(ply) {
       if (typeof window._updateWdlHighlight === 'function') window._updateWdlHighlight(ply);
       if (typeof window._updateSfHighlight  === 'function') window._updateSfHighlight(ply);
+    };
+    // Called by each chart once its Plotly render is complete so it can sync
+    // to wherever the board already is.
+    window._chartReady = function() {
+      window.updateEvalHighlight(window.currentPly || 0);
     };
     </script>
     """
