@@ -463,15 +463,26 @@ def render_svg_game_viewer(
       const sfDiv = document.getElementById('{eval_div_id}');
       Plotly.newPlot(sfDiv, [trace], {{
         xaxis: {{
-          title: 'Centipawns', zeroline: true, zerolinecolor: '#9ca3af', zerolinewidth: 2,
-          range: [-DISPLAY_CP_CAP * 1.1, DISPLAY_CP_CAP * 1.1],
+          title: {{ text: 'Evaluation', font: {{ size: 12, color: '#9ca3af' }} }},
+          zeroline: true, zerolinecolor: '#9ca3af', zerolinewidth: 2,
+          range: [-DISPLAY_CP_CAP * 1.15, DISPLAY_CP_CAP * 1.15],
+          tickvals: [-1200, -800, -400, -200, 0, 200, 400, 800, 1200],
+          ticktext: ['-12', '-8', '-4', '-2', '0', '+2', '+4', '+8', '+12'],
+          tickfont: {{ size: 11, color: '#9ca3af' }},
+          gridcolor: '#3d5045', gridwidth: 1,
         }},
-        yaxis: {{ title: 'Ply', autorange: 'reversed' }},
-        margin: {{ l: 50, r: 20, t: 20, b: 40 }},
+        yaxis: {{
+          title: {{ text: 'Move', font: {{ size: 12, color: '#9ca3af' }} }},
+          autorange: 'reversed',
+          tickfont: {{ size: 11, color: '#9ca3af' }},
+          tickformat: 'd',
+          gridcolor: '#3d5045', gridwidth: 1,
+        }},
+        margin: {{ l: 55, r: 55, t: 28, b: 52 }},
         bargap: 0.12, height: {sf_height},
         paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#2d3f35',
         font: {{ color: '#d1d5db' }},
-        annotations: [{{ text: 'Stockfish', xref: 'paper', yref: 'paper',
+        annotations: [{{ text: 'Stockfish evaluation', xref: 'paper', yref: 'paper',
           x: 0, y: 1.06, showarrow: false, font: {{ size: 11, color: '#9ca3af' }} }}],
       }}, {{ displaylogo: false, responsive: true }}).then(() => {{
         if (!window._evalChart) window._evalChart = sfDiv;
