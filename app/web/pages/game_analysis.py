@@ -1,27 +1,73 @@
 import math
 
+from sqlalchemy import and_, select
 import streamlit as st
 
+from app.config import get_settings
+from app.ingest.enqueue_analysis import enqueue_game
 from app.services.analysis_service import AnalysisService
+from app.storage.database import get_session
+from app.storage.models import AnalysisJob
 from app.web.components.auth import require_auth
 from app.web.components.game_board import render_svg_game_viewer
 
 require_auth()
 
+_settings = get_settings()
+
 service = AnalysisService()
 
 
+def _set_queue_flash(level: str, message: str) -> None:
+    st.session_state["queue_flash"] = {"level": level, "message": message}
+
+
+def _render_queue_flash() -> None:
+    payload = st.session_state.pop("queue_flash", None)
+    if not payload:
+        return
+
+    level = str(payload.get("level", "info"))
+    message = str(payload.get("message", ""))
+    if not message:
+        return
+
+    if level == "success":
+        st.success(message)
+    elif level == "warning":
+        st.warning(message)
+    elif level == "error":
+        st.error(message)
+    else:
+        st.info(message)
+
+
+def _engine_queue_status(game_id: str, engine: str) -> str | None:
+    """Return pending/running status for this game+engine if already queued."""
+    with get_session() as session:
+        job = session.execute(
+            select(AnalysisJob)
+            .where(
+                and_(
+                    AnalysisJob.game_id == game_id,
+                    AnalysisJob.engine == engine,
+                    AnalysisJob.status.in_(["pending", "running"]),
+                )
+            )
+            .order_by(AnalysisJob.created_at.desc())
+        ).scalar_one_or_none()
+    return None if job is None else str(job.status)
+
+
 def _win_percent(cp: float) -> float:
-    """Win percentage (0-100) using Lichess empirical sigmoid."""
     return 50 + 50 * (2 / (1 + math.exp(-0.00368208 * cp)) - 1)
 
 
 def _move_accuracy(wp_before: float, wp_after: float) -> float:
-    """Per-move accuracy from Win% before and after (0-100 scale)."""
     if wp_after >= wp_before:
         return 100.0
     win_diff = wp_before - wp_after
-    raw = 103.1668 * math.exp(-0.04354 * win_diff) - 3.1669 + 1
+    raw = 103.1668100711649 * math.exp(-0.04354415386753951 * win_diff) - 3.166924740191411 + 1
     return max(0.0, min(100.0, raw))
 
 
@@ -34,41 +80,22 @@ def _harmonic_mean(values: list[float]) -> float:
 
 def _derive_side_stats(moves_df, white_to_move: bool) -> dict[str, float | int | None]:
     if "ply" not in moves_df.columns or "cpl" not in moves_df.columns:
-        return {
-            "accuracy": None,
-            "acpl": None,
-            "blunders": None,
-            "mistakes": None,
-            "inaccuracies": None,
-        }
+        return {"accuracy": None, "acpl": None, "blunders": None, "mistakes": None, "inaccuracies": None}
 
     side_mod = 1 if white_to_move else 0
     side = moves_df[(moves_df["ply"] % 2) == side_mod].copy()
     if side.empty:
-        return {
-            "accuracy": None,
-            "acpl": None,
-            "blunders": None,
-            "mistakes": None,
-            "inaccuracies": None,
-        }
+        return {"accuracy": None, "acpl": None, "blunders": None, "mistakes": None, "inaccuracies": None}
 
     cpl = side["cpl"].dropna()
     if cpl.empty:
-        return {
-            "accuracy": None,
-            "acpl": None,
-            "blunders": None,
-            "mistakes": None,
-            "inaccuracies": None,
-        }
+        return {"accuracy": None, "acpl": None, "blunders": None, "mistakes": None, "inaccuracies": None}
 
-    # Approximate per-move accuracy from CPL (assumes starting from equal position).
     move_accs: list[float] = []
     for v in cpl.tolist():
         cp_loss = float(v)
-        wp_before = 50.0  # assume roughly equal position
-        wp_after = _win_percent(-cp_loss)  # mover's Win% after losing cp_loss
+        wp_before = 50.0
+        wp_after = _win_percent(-cp_loss)
         move_accs.append(_move_accuracy(wp_before, wp_after))
 
     return {
@@ -79,10 +106,11 @@ def _derive_side_stats(moves_df, white_to_move: bool) -> dict[str, float | int |
         "inaccuracies": int(((cpl >= 50) & (cpl < 100)).sum()),
     }
 
-st.title("Game Analysis")
-st.caption("Full-game SVG board with best-move arrows and eval chart.")
 
-# session_state is preferred (set by the in-app button); query_params support direct URL navigation.
+
+# ── Page header ──────────────────────────────────────────────────────────────
+st.title("Game Analysis")
+
 game_id = st.session_state.pop("pending_game_id", None) or st.query_params.get("game_id", "")
 
 if not game_id:
@@ -106,38 +134,82 @@ if analysis.url:
 if details_line:
     st.caption(details_line)
 st.caption(f"Game ID: {analysis.game_id}")
+_render_queue_flash()
 
-# Accuracy / blunder stats — only shown when Stockfish analysis exists
+# ── Lc0 WDL section ──────────────────────────────────────────────────────────
+lc0_ready = (
+    analysis.lc0_white_win_prob is not None
+    and analysis.lc0_moves is not None
+    and not analysis.lc0_moves.empty
+)
+
+if lc0_ready:
+    st.markdown("---")
+    st.markdown("### Lc0 Neural Network Analysis")
+    nodes_label = f"{analysis.lc0_engine_nodes:,} nodes/move" if analysis.lc0_engine_nodes else ""
+    net_label = analysis.lc0_network_name or ""
+    caption_parts = [p for p in [net_label, nodes_label] if p]
+    if caption_parts:
+        st.caption(" · ".join(caption_parts))
+
+    # Per-player WDL summary metrics
+    col_w, col_b = st.columns(2)
+    with col_w:
+        st.markdown(f"**{analysis.white}** (White)")
+        w1, w2, w3 = st.columns(3)
+        w1.metric("Avg Win %",  f"{analysis.lc0_white_win_prob:.1f}%")
+        w2.metric("Avg Draw %", f"{analysis.lc0_white_draw_prob:.1f}%")
+        w3.metric("Avg Loss %", f"{analysis.lc0_white_loss_prob:.1f}%")
+        b1, b2, b3 = st.columns(3)
+        b1.metric("Blunders",     analysis.lc0_white_blunders or 0)
+        b2.metric("Mistakes",     analysis.lc0_white_mistakes or 0)
+        b3.metric("Inaccuracies", analysis.lc0_white_inaccuracies or 0)
+        st.caption("Averages across all positions after each move.")
+    with col_b:
+        st.markdown(f"**{analysis.black}** (Black)")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Avg Win %",  f"{analysis.lc0_black_win_prob:.1f}%")
+        c2.metric("Avg Draw %", f"{analysis.lc0_black_draw_prob:.1f}%")
+        c3.metric("Avg Loss %", f"{analysis.lc0_black_loss_prob:.1f}%")
+        d1, d2, d3 = st.columns(3)
+        d1.metric("Blunders",     analysis.lc0_black_blunders or 0)
+        d2.metric("Mistakes",     analysis.lc0_black_mistakes or 0)
+        d3.metric("Inaccuracies", analysis.lc0_black_inaccuracies or 0)
+        st.caption("Averages across all positions after each move.")
+
+
+# ── Stockfish section ─────────────────────────────────────────────────────────
 derived_white = _derive_side_stats(analysis.moves, white_to_move=True)
 derived_black = _derive_side_stats(analysis.moves, white_to_move=False)
 
-white_accuracy = analysis.white_accuracy if analysis.white_accuracy is not None else derived_white["accuracy"]
-black_accuracy = analysis.black_accuracy if analysis.black_accuracy is not None else derived_black["accuracy"]
-white_acpl = analysis.white_acpl if analysis.white_acpl is not None else derived_white["acpl"]
-black_acpl = analysis.black_acpl if analysis.black_acpl is not None else derived_black["acpl"]
-white_blunders = analysis.white_blunders if analysis.white_blunders is not None else derived_white["blunders"]
-white_mistakes = analysis.white_mistakes if analysis.white_mistakes is not None else derived_white["mistakes"]
-white_inaccuracies = analysis.white_inaccuracies if analysis.white_inaccuracies is not None else derived_white["inaccuracies"]
-black_blunders = analysis.black_blunders if analysis.black_blunders is not None else derived_black["blunders"]
-black_mistakes = analysis.black_mistakes if analysis.black_mistakes is not None else derived_black["mistakes"]
-black_inaccuracies = analysis.black_inaccuracies if analysis.black_inaccuracies is not None else derived_black["inaccuracies"]
+white_accuracy    = analysis.white_accuracy    or derived_white["accuracy"]
+black_accuracy    = analysis.black_accuracy    or derived_black["accuracy"]
+white_acpl        = analysis.white_acpl        or derived_white["acpl"]
+black_acpl        = analysis.black_acpl        or derived_black["acpl"]
+white_blunders    = analysis.white_blunders    if analysis.white_blunders    is not None else derived_white["blunders"]
+white_mistakes    = analysis.white_mistakes    if analysis.white_mistakes    is not None else derived_white["mistakes"]
+white_inaccuracies= analysis.white_inaccuracies if analysis.white_inaccuracies is not None else derived_white["inaccuracies"]
+black_blunders    = analysis.black_blunders    if analysis.black_blunders    is not None else derived_black["blunders"]
+black_mistakes    = analysis.black_mistakes    if analysis.black_mistakes    is not None else derived_black["mistakes"]
+black_inaccuracies= analysis.black_inaccuracies if analysis.black_inaccuracies is not None else derived_black["inaccuracies"]
 
 accuracy_is_derived = analysis.white_accuracy is None and white_accuracy is not None
 
 if white_accuracy is not None and black_accuracy is not None:
-    st.markdown("#### Engine Analysis")
+    st.markdown("---")
+    st.markdown("### Stockfish Analysis")
     if analysis.engine_depth:
-        st.caption(f"Stockfish depth {analysis.engine_depth}")
+        st.caption(f"Depth {analysis.engine_depth}")
     if accuracy_is_derived:
-        st.caption("Accuracy is derived from move CPL because stored accuracy was unavailable for this game.")
+        st.caption("Accuracy derived from move CPL (stored accuracy unavailable).")
 
     col_w, col_b = st.columns(2)
     with col_w:
         st.markdown(f"**{analysis.white}** (White)")
         st.metric("Accuracy", f"{white_accuracy:.1f}%")
         a1, a2, a3 = st.columns(3)
-        a1.metric("Blunders", white_blunders or 0)
-        a2.metric("Mistakes", white_mistakes or 0)
+        a1.metric("Blunders",     white_blunders or 0)
+        a2.metric("Mistakes",     white_mistakes or 0)
         a3.metric("Inaccuracies", white_inaccuracies or 0)
         if white_acpl is not None:
             st.caption(f"Avg centipawn loss: {white_acpl:.1f}")
@@ -145,32 +217,98 @@ if white_accuracy is not None and black_accuracy is not None:
         st.markdown(f"**{analysis.black}** (Black)")
         st.metric("Accuracy", f"{black_accuracy:.1f}%")
         b1, b2, b3 = st.columns(3)
-        b1.metric("Blunders", black_blunders or 0)
-        b2.metric("Mistakes", black_mistakes or 0)
+        b1.metric("Blunders",     black_blunders or 0)
+        b2.metric("Mistakes",     black_mistakes or 0)
         b3.metric("Inaccuracies", black_inaccuracies or 0)
         if black_acpl is not None:
             st.caption(f"Avg centipawn loss: {black_acpl:.1f}")
-    st.markdown("---")
-else:
-    st.info(
-        "Stockfish analysis not yet available for this game. "
-        "Run `python -m app.ingest.run_analysis_worker --enqueue` to queue it."
-    )
 
-# Build eval data for the linked chart (only when real evals are present)
+# ── Queue buttons ─────────────────────────────────────────────────────────────
+missing_lc0 = not lc0_ready
+missing_sf = white_accuracy is None and black_accuracy is None
+
+if missing_lc0 or missing_sf:
+    st.markdown("---")
+    if missing_lc0 and missing_sf:
+        st.info("No engine analysis yet for this game.")
+
+    lc0_queue_status = _engine_queue_status(game_id, "lc0") if missing_lc0 else None
+    sf_queue_status = _engine_queue_status(game_id, "stockfish") if missing_sf else None
+
+    btn_col_lc0, btn_col_sf = st.columns(2)
+    if missing_lc0:
+        with btn_col_lc0:
+            if lc0_queue_status:
+                st.caption(f"Queue status: {lc0_queue_status.title()}")
+            if st.button(
+                "Queue Lc0 Analysis",
+                disabled=lc0_queue_status is not None,
+                help=(
+                    f"Lc0 analysis is already {lc0_queue_status}."
+                    if lc0_queue_status
+                    else "Add to Lc0 analysis queue (LC0_PATH is only required when running the worker)"
+                ),
+            ):
+                queued = enqueue_game(game_id, engine="lc0", depth=_settings.lc0_nodes)
+                if queued:
+                    _set_queue_flash("success", "Queued for Lc0 analysis. Start the worker to process it.")
+                else:
+                    _set_queue_flash("info", "Already in the Lc0 queue.")
+                st.rerun()
+    if missing_sf:
+        with btn_col_sf:
+            if sf_queue_status:
+                st.caption(f"Queue status: {sf_queue_status.title()}")
+            if st.button(
+                "Queue Stockfish Analysis",
+                disabled=sf_queue_status is not None,
+                help=(
+                    f"Stockfish analysis is already {sf_queue_status}."
+                    if sf_queue_status
+                    else "Add to Stockfish analysis queue"
+                ),
+            ):
+                queued = enqueue_game(game_id, engine="stockfish", depth=_settings.analysis_depth)
+                if queued:
+                    _set_queue_flash("success", "Queued for Stockfish analysis. Start the worker to process it.")
+                else:
+                    _set_queue_flash("info", "Already in the Stockfish queue.")
+                st.rerun()
+
+# ── Board viewer ──────────────────────────────────────────────────────────────
+st.markdown("---")
+st.markdown("### Board")
+
+# Use Lc0 arrows when available, otherwise fall back to Stockfish arrows
+moves_df = analysis.moves.copy()
+if lc0_ready and "arrow_uci" in analysis.lc0_moves.columns:
+    lc0_arrow_map = {
+        int(r["ply"]): str(r["arrow_uci"])
+        for _, r in analysis.lc0_moves.iterrows()
+        if r.get("arrow_uci")
+    }
+    if lc0_arrow_map:
+        moves_df["arrow_uci"] = moves_df["ply"].map(lc0_arrow_map).fillna(
+            moves_df["arrow_uci"] if "arrow_uci" in moves_df.columns else ""
+        )
+
+# Build chart data — pass both when available; board renders them as stacked charts
+wdl_data = None
+if lc0_ready:
+    wdl_cols = ["ply", "san", "wdl_win", "wdl_draw", "wdl_loss", "classification"]
+    wdl_data = analysis.lc0_moves[[c for c in wdl_cols if c in analysis.lc0_moves.columns]].to_dict(orient="records")
+
 eval_data = None
-if (
-    "ply" in analysis.moves.columns
-    and "cp_eval" in analysis.moves.columns
-    and analysis.moves["cp_eval"].notna().any()
-):
-    eval_data = analysis.moves[["ply", "cp_eval"]].dropna().to_dict(orient="records")
+if "cp_eval" in analysis.moves.columns and analysis.moves["cp_eval"].notna().any():
+    sf = analysis.moves[["ply", "cp_eval"] + [c for c in ["san", "classification"] if c in analysis.moves.columns]].dropna(subset=["cp_eval"])
+    eval_data = sf.to_dict(orient="records")
 
 render_svg_game_viewer(
     analysis.pgn,
-    moves_df=analysis.moves,
+    moves_df=moves_df,
     size=560,
     orientation="white",
     initial_ply="last",
+    wdl_data=wdl_data,
     eval_data=eval_data,
 )

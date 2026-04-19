@@ -32,12 +32,6 @@ class Game(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     played_at: Mapped[datetime] = mapped_column(DateTime, index=True)
-    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
-    opponent_name: Mapped[str] = mapped_column(String(120))
-    color: Mapped[str] = mapped_column(String(8))
-    result: Mapped[str] = mapped_column(String(32))
-    player_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    opponent_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     time_control: Mapped[str] = mapped_column(String(32))
     white_username: Mapped[str | None] = mapped_column(String(120), nullable=True)
     black_username: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -45,18 +39,13 @@ class Game(Base):
     black_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     result_pgn: Mapped[str | None] = mapped_column(String(16), nullable=True)
     winner_username: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    opening_ply_1: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    opening_ply_2: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    opening_ply_3: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    opening_ply_4: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    opening_ply_5: Mapped[str | None] = mapped_column(String(32), nullable=True)
     eco_code: Mapped[str] = mapped_column(String(8), default="")
     opening_name: Mapped[str] = mapped_column(String(120), default="")
     lichess_opening: Mapped[str | None] = mapped_column(String(200), nullable=True)
     pgn: Mapped[str] = mapped_column(Text, default="")
 
-    player: Mapped[Player] = relationship()
     analysis: Mapped["GameAnalysis | None"] = relationship(back_populates="game", uselist=False)
+    lc0_analysis: Mapped["Lc0GameAnalysis | None"] = relationship(back_populates="game", uselist=False)
     participants: Mapped[list["GameParticipant"]] = relationship(back_populates="game", cascade="all, delete-orphan")
     analysis_jobs: Mapped[list["AnalysisJob"]] = relationship(back_populates="game", cascade="all, delete-orphan")
 
@@ -88,9 +77,9 @@ class GameAnalysis(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     game_id: Mapped[str] = mapped_column(ForeignKey("games.id"), unique=True, index=True)
-    summary_cp: Mapped[float] = mapped_column(Float, default=0.0)
     analyzed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     engine_depth: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    summary_cp: Mapped[float] = mapped_column(Float, default=0.0)
     white_accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
     black_accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
     white_acpl: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -106,6 +95,23 @@ class GameAnalysis(Base):
     moves: Mapped[list["MoveAnalysis"]] = relationship(back_populates="analysis", cascade="all, delete-orphan")
 
 
+class MoveAnalysis(Base):
+    __tablename__ = "move_analysis"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    analysis_id: Mapped[int] = mapped_column(ForeignKey("game_analysis.id"), index=True)
+    ply: Mapped[int] = mapped_column(Integer)
+    san: Mapped[str] = mapped_column(String(32))
+    fen: Mapped[str] = mapped_column(Text)
+    cp_eval: Mapped[float] = mapped_column(Float)
+    cpl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    best_move: Mapped[str] = mapped_column(String(32), default="")
+    arrow_uci: Mapped[str] = mapped_column(String(8), default="")
+    classification: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    analysis: Mapped[GameAnalysis] = relationship(back_populates="moves")
+
+
 class OpeningBook(Base):
     __tablename__ = "opening_book"
 
@@ -116,23 +122,6 @@ class OpeningBook(Base):
     epd: Mapped[str] = mapped_column(String(100), unique=True, index=True)
 
 
-class MoveAnalysis(Base):
-    __tablename__ = "move_analysis"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    analysis_id: Mapped[int] = mapped_column(ForeignKey("game_analysis.id"), index=True)
-    ply: Mapped[int] = mapped_column(Integer)
-    san: Mapped[str] = mapped_column(String(32))
-    fen: Mapped[str] = mapped_column(Text)
-    cp_eval: Mapped[float] = mapped_column(Float)
-    best_move: Mapped[str] = mapped_column(String(32), default="")
-    arrow_uci: Mapped[str] = mapped_column(String(8), default="")
-    cpl: Mapped[float | None] = mapped_column(Float, nullable=True)
-    classification: Mapped[str | None] = mapped_column(String(16), nullable=True)
-
-    analysis: Mapped[GameAnalysis] = relationship(back_populates="moves")
-
-
 class AnalysisJob(Base):
     __tablename__ = "analysis_jobs"
 
@@ -140,6 +129,7 @@ class AnalysisJob(Base):
     game_id: Mapped[str] = mapped_column(ForeignKey("games.id"), index=True)
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)
+    engine: Mapped[str] = mapped_column(String(16), default="stockfish", index=True)
     depth: Mapped[int] = mapped_column(Integer, default=20)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -161,3 +151,48 @@ class WorkerHeartbeat(Base):
     jobs_completed: Mapped[int] = mapped_column(Integer, default=0)
     jobs_failed: Mapped[int] = mapped_column(Integer, default=0)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Lc0GameAnalysis(Base):
+    __tablename__ = "lc0_game_analysis"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[str] = mapped_column(ForeignKey("games.id"), unique=True, index=True)
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    engine_nodes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    network_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    white_win_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    white_draw_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    white_loss_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    black_win_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    black_draw_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    black_loss_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    white_blunders: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    white_mistakes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    white_inaccuracies: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    black_blunders: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    black_mistakes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    black_inaccuracies: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    game: Mapped[Game] = relationship(back_populates="lc0_analysis")
+    moves: Mapped[list["Lc0MoveAnalysis"]] = relationship(back_populates="analysis", cascade="all, delete-orphan")
+
+
+class Lc0MoveAnalysis(Base):
+    __tablename__ = "lc0_move_analysis"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    analysis_id: Mapped[int] = mapped_column(ForeignKey("lc0_game_analysis.id"), index=True)
+    ply: Mapped[int] = mapped_column(Integer)
+    san: Mapped[str] = mapped_column(String(32))
+    fen: Mapped[str] = mapped_column(Text)
+    wdl_win: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wdl_draw: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wdl_loss: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cp_equiv: Mapped[float | None] = mapped_column(Float, nullable=True)
+    best_move: Mapped[str] = mapped_column(String(32), default="")
+    arrow_uci: Mapped[str] = mapped_column(String(8), default="")
+    move_win_delta: Mapped[float | None] = mapped_column(Float, nullable=True)
+    classification: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    analysis: Mapped[Lc0GameAnalysis] = relationship(back_populates="moves")

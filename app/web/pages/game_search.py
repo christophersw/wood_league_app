@@ -58,65 +58,6 @@ def _ensure_pgn(df: pd.DataFrame) -> pd.DataFrame:
     return working
 
 
-def _ensure_opening_plies(df: pd.DataFrame, depth: int = 5) -> pd.DataFrame:
-    """Add opening_ply_1..depth columns, fetching from DB or parsing PGN."""
-    ply_cols = [f"opening_ply_{i}" for i in range(1, depth + 1)]
-    working = df.copy()
-    for col in ply_cols:
-        if col not in working.columns:
-            working[col] = None
-
-    # Fetch from DB when game_ids are available.
-    if "game_id" in working.columns:
-        need_mask = working["opening_ply_1"].isna() | (
-            working["opening_ply_1"].astype(str).str.strip() == ""
-        )
-        ids = working.loc[need_mask, "game_id"].dropna().unique().tolist()
-        if ids:
-            with get_session() as session:
-                rows = session.execute(
-                    select(
-                        Game.id,
-                        Game.opening_ply_1, Game.opening_ply_2,
-                        Game.opening_ply_3, Game.opening_ply_4,
-                        Game.opening_ply_5,
-                    ).where(Game.id.in_([str(g) for g in ids]))
-                ).all()
-            db_map = {r.id: r for r in rows}
-            for idx in working.index:
-                if not need_mask.at[idx]:
-                    continue
-                gid = str(working.at[idx, "game_id"])
-                db_row = db_map.get(gid)
-                if db_row:
-                    for col in ply_cols:
-                        val = getattr(db_row, col, None)
-                        if val:
-                            working.at[idx, col] = val
-
-    # Parse PGN as fallback.
-    if "pgn" in working.columns:
-        for idx in working.index:
-            if pd.notna(working.at[idx, "opening_ply_1"]) and str(
-                working.at[idx, "opening_ply_1"]
-            ).strip():
-                continue
-            pgn_text = str(working.at[idx, "pgn"] or "").strip()
-            if not pgn_text:
-                continue
-            game = chess.pgn.read_game(io.StringIO(pgn_text))
-            if game is None:
-                continue
-            board = game.board()
-            for ply_i, move in enumerate(game.mainline_moves(), 1):
-                if ply_i > depth:
-                    break
-                working.at[idx, f"opening_ply_{ply_i}"] = board.san(move)
-                board.push(move)
-
-    return working
-
-
 def _board_animation_html(pgn_text: str, max_ply: int | None = None, interval_ms: int = 700) -> str:
     """Return self-contained HTML that animates a game frame by frame."""
     pgn_text = str(pgn_text or "").strip()
@@ -219,7 +160,6 @@ def _render_results(results_df: pd.DataFrame) -> None:
         return
 
     enriched = _ensure_pgn(results_df)
-    enriched = _ensure_opening_plies(enriched)
 
     # Prepare display values.
     table_df = enriched.copy()
