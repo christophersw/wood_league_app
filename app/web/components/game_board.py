@@ -436,21 +436,31 @@ def render_svg_game_viewer(
         }};
       }}
 
+      const staticAnnotations = [
+        {{ text: 'Stockfish evaluation', xref: 'paper', yref: 'paper',
+          x: 0.5, y: 1.07, xanchor: 'center', showarrow: false,
+          font: {{ size: 11, color: '#9ca3af' }} }},
+        {{ text: '\u25b2 {white_player}', xref: 'paper', yref: 'paper',
+          x: 1.0, y: -0.08, xanchor: 'right', showarrow: false,
+          font: {{ size: 11, color: '#e5e7eb' }} }},
+        {{ text: '{black_player} \u25bc', xref: 'paper', yref: 'paper',
+          x: 0.0, y: -0.08, xanchor: 'left', showarrow: false,
+          font: {{ size: 11, color: '#9ca3af' }} }},
+      ];
+
       function arrowAnnotation(activePly) {{
         const idx = plies.indexOf(activePly);
-        if (idx < 0) return [];
+        if (idx < 0) return staticAnnotations;
         const positiveBar = evals[idx] >= 0;
-        return [{{
-          x: positiveBar ? 0 : 0, y: activePly,
+        return [...staticAnnotations, {{
+          x: 0, y: activePly,
           xref: 'x', yref: 'y',
           ax: positiveBar ? -40 : 40, ay: 0,
           axref: 'pixel', ayref: 'pixel',
           showarrow: true, arrowhead: 2, arrowsize: 1.2,
           arrowwidth: 2, arrowcolor: '#facc15',
           text: '', standoff: 2,
-        }},
-        {{ text: 'Stockfish', xref: 'paper', yref: 'paper',
-          x: 0, y: 1.06, showarrow: false, font: {{ size: 11, color: '#9ca3af' }} }}];
+        }}];
       }}
 
       const trace = {{
@@ -465,27 +475,35 @@ def render_svg_game_viewer(
       const sfDiv = document.getElementById('{eval_div_id}');
       Plotly.newPlot(sfDiv, [trace], {{
         xaxis: {{
-          title: {{ text: 'Evaluation', font: {{ size: 12, color: '#9ca3af' }} }},
-          zeroline: true, zerolinecolor: '#9ca3af', zerolinewidth: 2,
+          zeroline: true, zerolinecolor: '#6b7280', zerolinewidth: 2,
           range: [-DISPLAY_CP_CAP * 1.15, DISPLAY_CP_CAP * 1.15],
           tickvals: [-1200, -800, -400, -200, 0, 200, 400, 800, 1200],
           ticktext: ['-12', '-8', '-4', '-2', '0', '+2', '+4', '+8', '+12'],
-          tickfont: {{ size: 11, color: '#9ca3af' }},
-          gridcolor: '#3d5045', gridwidth: 1,
+          tickfont: {{ size: 11, color: '#6b7280' }},
+          gridcolor: '#5a7a65', gridwidth: 1,
         }},
         yaxis: {{
-          title: {{ text: 'Move', font: {{ size: 12, color: '#9ca3af' }} }},
+          title: {{ text: 'Move', font: {{ size: 12, color: '#6b7280' }} }},
           autorange: 'reversed',
-          tickfont: {{ size: 11, color: '#9ca3af' }},
+          tickfont: {{ size: 11, color: '#6b7280' }},
           tickformat: 'd',
-          gridcolor: '#3d5045', gridwidth: 1,
+          gridcolor: '#5a7a65', gridwidth: 1,
         }},
-        margin: {{ l: 55, r: 55, t: 28, b: 52 }},
+        margin: {{ l: 55, r: 55, t: 36, b: 52 }},
         bargap: 0.12, height: {sf_height},
-        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#2d3f35',
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#3d5a48',
         font: {{ color: '#d1d5db' }},
-        annotations: [{{ text: 'Stockfish evaluation', xref: 'paper', yref: 'paper',
-          x: 0, y: 1.06, showarrow: false, font: {{ size: 11, color: '#9ca3af' }} }}],
+        annotations: [
+          {{ text: 'Stockfish evaluation', xref: 'paper', yref: 'paper',
+            x: 0.5, y: 1.07, xanchor: 'center', showarrow: false,
+            font: {{ size: 11, color: '#9ca3af' }} }},
+          {{ text: '\u25b2 {white_player}', xref: 'paper', yref: 'paper',
+            x: 1.0, y: -0.08, xanchor: 'right', showarrow: false,
+            font: {{ size: 11, color: '#e5e7eb' }} }},
+          {{ text: '{black_player} \u25bc', xref: 'paper', yref: 'paper',
+            x: 0.0, y: -0.08, xanchor: 'left', showarrow: false,
+            font: {{ size: 11, color: '#9ca3af' }} }},
+        ],
       }}, {{ displaylogo: false, responsive: true }}).then(() => {{
         if (!window._evalChart) window._evalChart = sfDiv;
         sfDiv.on('plotly_click', function(data) {{
