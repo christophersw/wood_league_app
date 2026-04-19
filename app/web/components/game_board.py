@@ -437,12 +437,12 @@ def render_svg_game_viewer(
       function arrowAnnotation(activePly) {{
         const idx = plies.indexOf(activePly);
         if (idx < 0) return [];
-        const x = evals[idx] >= 0 ? -DISPLAY_CP_CAP * 0.05 : DISPLAY_CP_CAP * 0.05;
+        const positiveBar = evals[idx] >= 0;
         return [{{
-          x, y: activePly,
+          x: positiveBar ? 0 : 0, y: activePly,
           xref: 'x', yref: 'y',
-          ax: evals[idx] >= 0 ? -48 : 48, ay: 0,
-          axref: 'x', ayref: 'y',
+          ax: positiveBar ? -40 : 40, ay: 0,
+          axref: 'pixel', ayref: 'pixel',
           showarrow: true, arrowhead: 2, arrowsize: 1.2,
           arrowwidth: 2, arrowcolor: '#facc15',
           text: '', standoff: 2,
