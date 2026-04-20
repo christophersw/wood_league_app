@@ -183,7 +183,14 @@ def _render_results(results_df: pd.DataFrame) -> None:
         st.caption(f"Showing {len(enriched)} games. Select a row to preview.")
 
         date_col = next((c for c in DATE_COLUMN_CANDIDATES if c in table_df.columns), None)
+        # Add a clickable link column for each game's analysis page.
+        if "game_id" in table_df.columns:
+            table_df["analysis"] = table_df["game_id"].apply(
+                lambda gid: f"/game-analysis?game_id={gid}" if pd.notna(gid) and str(gid).strip() else None
+            )
+
         preferred_order = [
+            "analysis",
             "played_at",
             "date",
             "game_date",
@@ -205,12 +212,16 @@ def _render_results(results_df: pd.DataFrame) -> None:
         if not display_cols:
             display_cols = [
                 c for c in table_df.columns
-                if c not in {"pgn", "game_id", "result", "result_pgn", "time_control"}
+                if c not in {"pgn", "game_id", "result", "result_pgn", "time_control", "analysis"}
             ]
 
         column_config = {
             col: st.column_config.Column(col.replace("_", " ").title()) for col in display_cols
         }
+        if "analysis" in display_cols:
+            column_config["analysis"] = st.column_config.LinkColumn(
+                "Analysis", display_text="Open"
+            )
         table_event = st.dataframe(
             table_df[display_cols],
             width='stretch',

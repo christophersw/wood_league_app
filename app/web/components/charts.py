@@ -5,6 +5,66 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+# ── Gentleman's Palette — Light Mode ────────────────────────────────────────
+_GP = {
+    "parchment": "#F5EDD8",
+    "linen":     "#EDE0C4",
+    "ebony":     "#1C1C1C",
+    "forest":    "#1E3D2F",
+    "moss":      "#3A5C45",
+    "whisky":    "#C17F24",
+    "peat":      "#7B4F2E",
+    "smoke":     "#4A4A4A",
+    "gilt":      "#B8962E",
+}
+
+_GP_FONT = "EB Garamond, Georgia, serif"
+_GP_MONO = "DM Mono, Courier New, monospace"
+
+_GP_COLORWAY = [
+    "#C17F24", "#B8962E", "#3A5C45", "#7B4F2E",
+    "#9E6B3A", "#5C8A67", "#C4933F", "#4A7A5B",
+]
+
+
+def _gp_layout(**overrides) -> dict:
+    """Return a Plotly layout dict applying the Gentleman's Palette light theme."""
+    base: dict = dict(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(237,224,196,0.35)",
+        font=dict(family=_GP_FONT, color=_GP["ebony"], size=13),
+        title_font=dict(family="Cormorant Garamond, Georgia, serif", size=18, color=_GP["forest"]),
+        colorway=_GP_COLORWAY,
+        xaxis=dict(
+            gridcolor=_GP["linen"],
+            gridwidth=1,
+            linecolor=_GP["smoke"],
+            tickfont=dict(family=_GP_MONO, color=_GP["peat"], size=11),
+            title_font=dict(family=_GP_MONO, color=_GP["peat"], size=11),
+            zerolinecolor=_GP["smoke"],
+        ),
+        yaxis=dict(
+            gridcolor=_GP["linen"],
+            gridwidth=1,
+            linecolor=_GP["smoke"],
+            tickfont=dict(family=_GP_MONO, color=_GP["peat"], size=11),
+            title_font=dict(family=_GP_MONO, color=_GP["peat"], size=11),
+            zerolinecolor=_GP["smoke"],
+        ),
+        legend=dict(
+            bgcolor="rgba(245,237,216,0.8)",
+            bordercolor=_GP["gilt"],
+            borderwidth=1,
+            font=dict(family=_GP_FONT, color=_GP["ebony"], size=12),
+        ),
+    )
+    for k, v in overrides.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            base[k] = {**base[k], **v}
+        else:
+            base[k] = v
+    return base
+
 
 def elo_trend_chart(df: pd.DataFrame, selected_player: str):
     fig = px.line(
@@ -14,6 +74,7 @@ def elo_trend_chart(df: pd.DataFrame, selected_player: str):
         color="player",
         title="ELO Trend (Daily Games)",
         markers=False,
+        color_discrete_sequence=_GP_COLORWAY,
     )
     fig.update_traces(opacity=0.35)
     fig.for_each_trace(
@@ -21,7 +82,10 @@ def elo_trend_chart(df: pd.DataFrame, selected_player: str):
         if trace.name == selected_player
         else None
     )
-    fig.update_layout(legend_title="Player", margin=dict(l=20, r=20, t=56, b=20))
+    fig.update_layout(**_gp_layout(
+        legend_title="Player",
+        margin=dict(l=20, r=20, t=56, b=20),
+    ))
     return fig
 
 
@@ -31,8 +95,15 @@ def opening_pie_chart(df: pd.DataFrame):
         names="opening",
         values="games",
         title="Recent Openings Distribution (Depth = 5 Ply)",
+        color_discrete_sequence=_GP_COLORWAY,
     )
-    fig.update_traces(textposition="inside", textinfo="percent+label")
+    fig.update_traces(
+        textposition="inside",
+        textinfo="percent+label",
+        textfont=dict(family=_GP_MONO, size=11),
+        marker=dict(line=dict(color=_GP["ebony"], width=1)),
+    )
+    fig.update_layout(**_gp_layout())
     return fig
 
 
@@ -40,11 +111,25 @@ def eval_timeline_chart(df: pd.DataFrame, selected_ply: int | None = None):
     fig = px.bar(df, x="ply", y="cp_eval", title="Engine Evaluation by Ply")
 
     if selected_ply is not None:
-        colors = ["#4c78a8" if int(p) != selected_ply else "#e45756" for p in df["ply"].tolist()]
+        colors = [
+            _GP["whisky"] if int(p) != selected_ply else _GP["gilt"]
+            for p in df["ply"].tolist()
+        ]
         fig.update_traces(marker_color=colors)
+    else:
+        fig.update_traces(marker_color=_GP["whisky"])
 
-    fig.add_hline(y=0, line_dash="dot")
-    fig.update_layout(yaxis_title="Centipawns", xaxis_title="Ply", clickmode="event+select")
+    # Split background: light gray above zero (white advantage), dark gray below (black advantage)
+    fig.add_hrect(y0=0, y1=2500,  fillcolor="#E8E8E8", opacity=1.0, layer="below", line_width=0)
+    fig.add_hrect(y0=-2500, y1=0, fillcolor="#2A2A2A", opacity=1.0, layer="below", line_width=0)
+
+    fig.add_hline(y=0, line_dash="dot", line_color=_GP["smoke"])
+    fig.update_layout(**_gp_layout(
+        plot_bgcolor="rgba(0,0,0,0)",
+        yaxis=dict(title="Centipawns"),
+        xaxis=dict(title="Ply"),
+        clickmode="event+select",
+    ))
     return fig
 
 
@@ -152,11 +237,12 @@ def opening_starburst_chart(df: pd.DataFrame, depth: int = 5):
         textinfo="label+text+percent parent",
         hovertemplate="<b>%{label}</b><br>Games: %{value}<br>%{hovertext}<extra></extra>",
         insidetextorientation="auto",
+        marker=dict(colors=_GP_COLORWAY * 20, line=dict(color=_GP["ebony"], width=1)),
     ))
-    fig.update_layout(
+    fig.update_layout(**_gp_layout(
         title=f"Opening Star-burst (First {depth} Plies)",
         margin=dict(l=10, r=10, t=56, b=10),
-    )
+    ))
     return fig
 
 
@@ -172,8 +258,12 @@ def opening_frequency_bar(df: pd.DataFrame):
         orientation="h",
         title="Opening Frequency",
         labels={"opening_label": "Opening", "games": "Games"},
+        color_discrete_sequence=[_GP["whisky"]],
     )
-    fig.update_layout(yaxis=dict(categoryorder="total ascending"), margin=dict(l=10, r=10, t=56, b=10))
+    fig.update_layout(**_gp_layout(
+        yaxis=dict(categoryorder="total ascending"),
+        margin=dict(l=10, r=10, t=56, b=10),
+    ))
     return fig
 
 
@@ -195,9 +285,17 @@ def opening_wdl_stacked(metrics_df: pd.DataFrame):
         color="outcome",
         title="Win / Draw / Loss by Opening",
         labels={"opening_label": "Opening", "count": "Games", "outcome": "Outcome"},
-        color_discrete_map={"wins": "#1f77b4", "draws": "#9e9e9e", "losses": "#d62728"},
+        color_discrete_map={
+            "wins":   _GP["moss"],
+            "draws":  _GP["smoke"],
+            "losses": _GP["peat"],
+        },
     )
-    fig.update_layout(barmode="stack", xaxis_tickangle=-35, margin=dict(l=10, r=10, t=56, b=10))
+    fig.update_layout(**_gp_layout(
+        barmode="stack",
+        xaxis=dict(tickangle=-35),
+        margin=dict(l=10, r=10, t=56, b=10),
+    ))
     return fig
 
 
@@ -217,9 +315,16 @@ def opening_bubble(metrics_df: pd.DataFrame):
         title="Opening Bubble Map (Frequency vs Win Rate)",
         labels={"games": "Frequency", "win_pct": "Win %", "wins": "Total Wins", "opening_label": "Opening"},
         size_max=45,
-        color_continuous_scale="Viridis",
+        color_continuous_scale=[
+            [0.0, _GP["linen"]],
+            [0.5, _GP["whisky"]],
+            [1.0, _GP["gilt"]],
+        ],
     )
-    fig.update_layout(showlegend=False, margin=dict(l=10, r=10, t=56, b=10))
+    fig.update_layout(**_gp_layout(
+        showlegend=False,
+        margin=dict(l=10, r=10, t=56, b=10),
+    ))
     return fig
 
 
@@ -247,17 +352,25 @@ def opening_timeline_heatmap(timeline_df: pd.DataFrame, title: str):
             z=pivot.values,
             x=xvals,
             y=yvals,
-            colorscale="Blues",
-            colorbar_title="Games",
+            colorscale=[
+                [0.0, _GP["parchment"]],
+                [0.5, _GP["whisky"]],
+                [1.0, _GP["forest"]],
+            ],
+            colorbar=dict(
+                title="Games",
+                tickfont=dict(family=_GP_MONO, color=_GP["peat"], size=10),
+                titlefont=dict(family=_GP_MONO, color=_GP["peat"], size=10),
+            ),
             hovertemplate=f"Opening: %{{y}}<br>{bucket_label}: %{{x}}<br>Games: %{{z}}<extra></extra>",
         )
     )
-    fig.update_layout(
+    fig.update_layout(**_gp_layout(
         title=title,
-        xaxis_title=bucket_label,
-        yaxis_title="Opening",
+        xaxis=dict(title=bucket_label),
+        yaxis=dict(title="Opening"),
         margin=dict(l=10, r=10, t=56, b=10),
-    )
+    ))
     return fig
 
 
@@ -273,16 +386,31 @@ def player_fingerprint_radar(df: pd.DataFrame):
             theta=theta,
             fill="toself",
             name="Opening Fingerprint",
-            line=dict(color="#2a6f97", width=3),
-            marker=dict(size=8),
+            line=dict(color=_GP["whisky"], width=3),
+            marker=dict(size=8, color=_GP["gilt"]),
+            fillcolor=f"rgba(193,127,36,0.15)",
         )
     )
-    fig.update_layout(
+    fig.update_layout(**_gp_layout(
         title="Player Opening Fingerprint",
-        polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+        polar=dict(
+            bgcolor="rgba(245,237,216,0.6)",
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100],
+                gridcolor=_GP["linen"],
+                linecolor=_GP["smoke"],
+                tickfont=dict(family=_GP_MONO, color=_GP["peat"], size=10),
+            ),
+            angularaxis=dict(
+                gridcolor=_GP["linen"],
+                linecolor=_GP["smoke"],
+                tickfont=dict(family=_GP_FONT, color=_GP["ebony"], size=12),
+            ),
+        ),
         showlegend=False,
         margin=dict(l=10, r=10, t=56, b=10),
-    )
+    ))
     return fig
 
 
@@ -296,16 +424,26 @@ def opening_flow_sankey(flow_df: pd.DataFrame):
     fig = go.Figure(
         data=[
             go.Sankey(
-                node=dict(label=labels, pad=18, thickness=16),
+                node=dict(
+                    label=labels,
+                    pad=18,
+                    thickness=16,
+                    color=_GP["moss"],
+                    line=dict(color=_GP["gilt"], width=0.5),
+                ),
                 link=dict(
                     source=[idx_map[s] for s in flow_df["source"]],
                     target=[idx_map[t] for t in flow_df["target"]],
                     value=flow_df["games"].tolist(),
+                    color=f"rgba(193,127,36,0.25)",
                 ),
             )
         ]
     )
-    fig.update_layout(title="Opening-to-Opening Flow", margin=dict(l=10, r=10, t=56, b=10))
+    fig.update_layout(**_gp_layout(
+        title="Opening-to-Opening Flow",
+        margin=dict(l=10, r=10, t=56, b=10),
+    ))
     return fig
 
 
@@ -326,10 +464,10 @@ def opening_wins_losses_bar(metrics_df: pd.DataFrame, top_n: int = 15) -> go.Fig
         name="Wins",
         x=x_labels,
         y=top["wins"],
-        marker_color="#2ca02c",
+        marker_color=_GP["moss"],
         text=top["wins"],
         textposition="outside",
-        textfont=dict(size=11),
+        textfont=dict(family=_GP_MONO, size=11, color=_GP["ebony"]),
         hovertemplate="<b>%{x}</b><br>Wins: %{y}<extra></extra>",
     ))
 
@@ -337,29 +475,29 @@ def opening_wins_losses_bar(metrics_df: pd.DataFrame, top_n: int = 15) -> go.Fig
         name="Losses",
         x=x_labels,
         y=-top["losses"],
-        marker_color="#d62728",
+        marker_color=_GP["peat"],
         text=top["losses"],
         textposition="outside",
-        textfont=dict(size=11),
+        textfont=dict(family=_GP_MONO, size=11, color=_GP["ebony"]),
         hovertemplate="<b>%{x}</b><br>Losses: %{text}<extra></extra>",
     ))
 
-    fig.update_layout(
+    fig.update_layout(**_gp_layout(
         title="Most Common Openings — Wins vs Losses",
         barmode="relative",
         xaxis=dict(
             title="Opening",
             tickangle=-50,
-            tickfont=dict(size=11),
+            tickfont=dict(family=_GP_MONO, size=11),
         ),
         yaxis=dict(
             title="Games",
             zeroline=True,
             zerolinewidth=2,
-            zerolinecolor="#333",
+            zerolinecolor=_GP["smoke"],
         ),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=10, r=10, t=70, b=180),
-    )
+    ))
 
     return fig

@@ -12,6 +12,22 @@ import streamlit as st
 
 from app.web.components.html_embed import render_html_iframe
 
+# ── Gentleman's Palette board colors ─────────────────────────────────────────
+_BOARD_COLORS = {
+    "square light": "#F5EDD8",   # Parchment
+    "square dark":  "#1E3D2F",   # Forest
+    "margin":       "#7B4F2E",   # Peat/walnut
+    "coord":        "#B8962E",   # Gilt
+}
+
+# Best-move arrow: Whisky amber with 50% alpha
+_ARROW_COLOR = "#C17F2480"
+
+def _apply_custom_pieces(svg: str) -> str:
+    """Return python-chess native SVG pieces without overriding defs."""
+    return svg
+
+
 
 def render_svg_game_viewer(
     pgn: str,
@@ -60,10 +76,13 @@ def render_svg_game_viewer(
         board = game.board()  # reset
 
     frames: list[str] = []
+    is_best_map: dict[int, bool] = {}
 
     # Frame 0: starting position (no arrows, no lastmove)
     frames.append(
-        chess.svg.board(board, size=size, flipped=flipped)
+        _apply_custom_pieces(
+            chess.svg.board(board, size=size, flipped=flipped, colors=_BOARD_COLORS)
+        )
     )
 
     board = game.board()  # reset
@@ -73,20 +92,24 @@ def render_svg_game_viewer(
         arrows: list[chess.svg.Arrow] = []
         uci_str = arrow_map.get(ply_i, "")
         if uci_str and len(uci_str) >= 4:
+            is_best_map[ply_i] = move.uci() == uci_str
             try:
                 from_sq = chess.parse_square(uci_str[:2])
                 to_sq = chess.parse_square(uci_str[2:4])
-                arrows.append(chess.svg.Arrow(from_sq, to_sq, color="#3b82f680"))
+                arrows.append(chess.svg.Arrow(from_sq, to_sq, color=_ARROW_COLOR))
             except ValueError:
                 pass
 
         frames.append(
-            chess.svg.board(
-                board,
-                size=size,
-                lastmove=move,
-                arrows=arrows,
-                flipped=flipped,
+            _apply_custom_pieces(
+                chess.svg.board(
+                    board,
+                    size=size,
+                    lastmove=move,
+                    arrows=arrows,
+                    flipped=flipped,
+                    colors=_BOARD_COLORS,
+                )
             )
         )
 
@@ -117,8 +140,9 @@ def render_svg_game_viewer(
     html = f"""
     <style>
       #{viewer_id} {{
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-family: 'EB Garamond', Georgia, serif;
         max-width: 1200px;
+        background: transparent;
       }}
       #{viewer_id} .viewer-grid {{
         display: grid;
@@ -137,18 +161,46 @@ def render_svg_game_viewer(
       }}
       #{viewer_id} .board-wrap {{ text-align: center; }}
       #{viewer_id} .board-wrap svg {{ display: block; margin: 0 auto; }}
+      #{viewer_id} .player-label {{
+        text-align: center;
+        font-family: 'Cormorant Garamond', Georgia, serif;
+        font-size: 15px;
+        font-weight: 600;
+        color: #1E3D2F;
+        padding: 2px 0;
+        letter-spacing: 0.04em;
+      }}
       #{viewer_id} .controls {{
         display: flex; align-items: center; gap: 6px;
         padding: 8px 0; justify-content: center;
       }}
       #{viewer_id} .controls button {{
-        background: #374151; color: #fff; border: none; border-radius: 4px;
-        padding: 5px 10px; cursor: pointer; font-size: 14px; min-width: 32px;
+        background: transparent;
+        color: #1E3D2F;
+        border: 1px solid #B8962E;
+        border-radius: 3px;
+        padding: 4px 9px;
+        cursor: pointer;
+        font-family: 'DM Mono', monospace;
+        font-size: 13px;
+        min-width: 32px;
+        transition: background 0.15s, color 0.15s;
       }}
-      #{viewer_id} .controls button:hover {{ background: #4b5563; }}
-      #{viewer_id} .controls input[type=range] {{ flex: 1; max-width: 280px; }}
+      #{viewer_id} .controls button:hover {{
+        background: #1C1C1C;
+        color: #F5EDD8;
+      }}
+      #{viewer_id} .controls input[type=range] {{
+        flex: 1;
+        max-width: 280px;
+        accent-color: #C17F24;
+      }}
       #{viewer_id} .ply-label {{
-        font-size: 13px; color: #9ca3af; min-width: 70px; text-align: center;
+        font-family: 'DM Mono', monospace;
+        font-size: 12px;
+        color: #7B4F2E;
+        min-width: 70px;
+        text-align: center;
       }}
       #{viewer_id} .analysis-pane {{
         display: flex;
@@ -159,17 +211,33 @@ def render_svg_game_viewer(
         width: 100%;
       }}
       #{viewer_id} .move-list {{
-        max-height: 220px; overflow-y: auto; padding: 6px 4px;
-        font-size: 13px; line-height: 1.8; border: 1px solid #374151;
-        border-radius: 6px; margin-top: 0; background: #111827;
+        max-height: 220px;
+        overflow-y: auto;
+        padding: 6px 4px;
+        font-family: 'DM Mono', monospace;
+        font-size: 12px;
+        line-height: 1.9;
+        border: 1px solid #B8962E;
+        border-radius: 4px;
+        margin-top: 0;
+        background: rgba(237,224,196,0.7);
       }}
-      #{viewer_id} .move-list .move-num {{ color: #6b7280; margin-left: 4px; }}
+      #{viewer_id} .move-list .move-num {{
+        color: #4A4A4A;
+        margin-left: 4px;
+      }}
       #{viewer_id} .move-list .move {{
-        cursor: pointer; padding: 1px 4px; border-radius: 3px; color: #d1d5db;
+        cursor: pointer;
+        padding: 1px 5px;
+        border-radius: 3px;
+        color: #1C1C1C;
+        transition: background 0.12s;
       }}
-      #{viewer_id} .move-list .move:hover {{ background: #1f2937; }}
+      #{viewer_id} .move-list .move:hover {{ background: rgba(193,127,36,0.15); }}
       #{viewer_id} .move-list .move.active {{
-        background: #2563eb; color: #fff; font-weight: 600;
+        background: #C17F24;
+        color: #F5EDD8;
+        font-weight: 600;
       }}
       @media (max-width: 900px) {{
         #{viewer_id} .viewer-grid {{
@@ -184,7 +252,9 @@ def render_svg_game_viewer(
     <div id="{viewer_id}">
       <div class="viewer-grid">
         <div class="board-pane">
+          <div class="player-label">{black_player if not flipped else white_player}</div>
           <div class="board-wrap" id="{viewer_id}-board"></div>
+          <div class="player-label">{white_player if not flipped else black_player}</div>
           <div class="controls">
             <button onclick="goTo(0)" title="Start">&#x23EE;</button>
             <button onclick="goTo(Math.max(0, currentPly-1))" title="Back">&#x25C0;</button>
@@ -311,30 +381,30 @@ def render_svg_game_viewer(
       const traceWin = {{
         x: plies, y: wins, name: 'White Win',
         type: 'scatter', mode: 'lines', stackgroup: 'wdl',
-        fill: 'tozeroy', fillcolor: 'rgba(249,250,251,0.60)',
-        line: {{ color: '#f9fafb', width: 1 }},
+        fill: 'tozeroy', fillcolor: 'rgba(30,61,47,0.55)',
+        line: {{ color: '#1E3D2F', width: 1 }},
         hovertemplate: 'White win: %{{y:.1f}}%<extra></extra>',
       }};
       const traceDraw = {{
         x: plies, y: draws, name: 'Draw',
         type: 'scatter', mode: 'lines', stackgroup: 'wdl',
-        fill: 'tonexty', fillcolor: 'rgba(156,163,175,0.50)',
-        line: {{ color: '#9ca3af', width: 1 }},
+        fill: 'tonexty', fillcolor: 'rgba(74,74,74,0.35)',
+        line: {{ color: '#4A4A4A', width: 1 }},
         hovertemplate: 'Draw: %{{y:.1f}}%<extra></extra>',
       }};
       const traceLoss = {{
         x: plies, y: losses, name: 'Black Win',
         type: 'scatter', mode: 'lines', stackgroup: 'wdl',
-        fill: 'tonexty', fillcolor: 'rgba(55,65,81,0.65)',
-        line: {{ color: '#374151', width: 1 }},
+        fill: 'tonexty', fillcolor: 'rgba(245,237,216,0.65)',
+        line: {{ color: '#F5EDD8', width: 1 }},
         hovertemplate: 'Black win: %{{y:.1f}}%<extra></extra>',
       }};
 
       // Classification markers — dots along the bottom of the chart
       const clsMeta = [
-        {{ cls: 'blunder',    color: '#ef4444', size: 10, label: 'Blunder ??'     }},
-        {{ cls: 'mistake',    color: '#f97316', size: 8,  label: 'Mistake ?'      }},
-        {{ cls: 'inaccuracy', color: '#eab308', size: 6,  label: 'Inaccuracy ?!'  }},
+        {{ cls: 'blunder',    color: '#9B3A3A', size: 10, label: 'Blunder ??'     }},
+        {{ cls: 'mistake',    color: '#C4762A', size: 8,  label: 'Mistake ?'      }},
+        {{ cls: 'inaccuracy', color: '#B8962E', size: 6,  label: 'Inaccuracy ?!'  }},
       ];
       const clsTraces = clsMeta.map(m => {{
         const pts = wdlData.filter(d => d.classification === m.cls);
@@ -345,15 +415,15 @@ def render_svg_game_viewer(
           type: 'scatter', mode: 'markers',
           marker: {{ color: m.color, size: m.size, symbol: 'circle' }},
           customdata: pts.map(d => d.san || ''),
-          hovertemplate: '%{{customdata}} — ' + m.label + '<extra></extra>',
+          hovertemplate: '%{{customdata}} \u2014 ' + m.label + '<extra></extra>',
         }};
       }});
 
-      // Vertical amber line marking the current ply
+      // Vertical whisky line marking the current ply
       const wdlHighlight = {{
         x: [null, null], y: [0, 100], mode: 'lines',
         showlegend: false, hoverinfo: 'skip',
-        line: {{ color: '#f59e0b', width: 2, dash: 'dot' }},
+        line: {{ color: '#C17F24', width: 2, dash: 'dot' }},
       }};
 
       const allWdlTraces = [traceWin, traceDraw, traceLoss, ...clsTraces, wdlHighlight];
@@ -361,15 +431,25 @@ def render_svg_game_viewer(
 
       const wdlDiv = document.getElementById('{viewer_id}-eval');
       Plotly.newPlot(wdlDiv, allWdlTraces, {{
-        xaxis: {{ title: 'Ply (half-move)', zeroline: false }},
-        yaxis: {{ title: 'Win/Draw/Loss (%)', range: [0, 100], ticksuffix: '%' }},
-        legend: {{ orientation: 'h', y: -0.25 }},
+        xaxis: {{
+          title: {{ text: 'Ply (half-move)', font: {{ size: 11, color: '#1C1C1C', family: 'DM Mono, monospace' }} }},
+          zeroline: false,
+          gridcolor: '#EDE0C4', tickfont: {{ size: 11, color: '#1C1C1C', family: 'DM Mono, monospace' }},
+        }},
+        yaxis: {{
+          title: {{ text: 'Win/Draw/Loss (%)', font: {{ size: 11, color: '#1C1C1C', family: 'DM Mono, monospace' }} }},
+          range: [0, 100], ticksuffix: '%',
+          gridcolor: '#EDE0C4', tickfont: {{ size: 11, color: '#1C1C1C', family: 'DM Mono, monospace' }},
+        }},
+        legend: {{ orientation: 'h', y: -0.25, font: {{ color: '#1C1C1C', family: 'EB Garamond, serif', size: 12 }},
+          bgcolor: 'rgba(0,0,0,0)', bordercolor: '#EDE0C4', borderwidth: 1 }},
         margin: {{ l: 55, r: 20, t: 8, b: 60 }},
         height: {wdl_height},
-        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-        font: {{ color: '#d1d5db' }}, hovermode: 'x unified',
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(237,224,196,0.2)',
+        font: {{ color: '#1C1C1C', family: 'EB Garamond, serif' }}, hovermode: 'x unified',
         annotations: [{{ text: 'Lc0 WDL', xref: 'paper', yref: 'paper',
-          x: 0, y: 1.04, showarrow: false, font: {{ size: 11, color: '#9ca3af' }} }}],
+          x: 0, y: 1.04, showarrow: false,
+          font: {{ size: 11, color: '#7B4F2E', family: 'DM Mono, monospace' }} }}],
       }}, {{ displaylogo: false, responsive: true }}).then(() => {{
         window._evalChart = wdlDiv;
         wdlDiv.on('plotly_click', function(data) {{
@@ -387,20 +467,26 @@ def render_svg_game_viewer(
 
     if eval_data:
         eval_json = json.dumps(eval_data)
+        is_best_map_json = json.dumps(is_best_map)
         eval_count = len(eval_data)
-        sf_height = max(240, min(500, 150 + eval_count * 6))
+        sf_height = max(300, min(560, 210 + eval_count * 7))
         extra_height += sf_height + 20
         eval_div_id = f'{viewer_id}-eval2' if wdl_data else f'{viewer_id}-eval'
         charts_html += f"""
     <script>
     (function() {{
       const evalData = {eval_json};
+      const isBestMap = {is_best_map_json};
+      const whiteName = {json.dumps(white_player)};
+      const blackName = {json.dumps(black_player)};
       const MATE_CP_BASE = 10000;
       const MATE_THRESHOLD = 9000;
       const DISPLAY_CP_CAP = 1200;
 
       const points = evalData.map(d => {{
         const ply = Number(d.ply);
+        const moveNumber = Math.ceil(ply / 2);
+        const player = ply % 2 === 1 ? 'White' : 'Black';
         const rawCp = Number(d.cp_eval ?? 0);
         const cls = d.classification || '';
         const isMate = Math.abs(rawCp) >= MATE_THRESHOLD;
@@ -419,19 +505,31 @@ def render_svg_game_viewer(
         const textLabel = isMate
           ? (mateMoves ? `M${{rawCp >= 0 ? '+' : '-'}}${{mateMoves}}` : `M${{rawCp >= 0 ? '+' : '-'}}`)
           : '';
-        return {{ ply, rawCp, displayCp, isMate, hoverText, textLabel, cls, san: d.san || '' }};
+        return {{ ply, moveNumber, player, rawCp, displayCp, isMate, hoverText, textLabel, cls, san: d.san || '' }};
+      }});
+
+      points.forEach((p, idx) => {{
+        if (idx === 0) {{
+          p.changeText = 'N/A';
+          return;
+        }}
+        const delta = p.rawCp - points[idx - 1].rawCp;
+        const rounded = Math.round(delta);
+        p.changeText = `${{rounded >= 0 ? '+' : ''}}${{rounded}} cp`;
       }});
 
       const plies = points.map(p => p.ply);
       const evals = points.map(p => p.displayCp);
-      // Bar fill: classification color takes priority, then white/black by sign
-      const clsColor = {{ blunder: '#ef4444', mistake: '#f97316', inaccuracy: '#eab308' }};
-      const baseColors = points.map(p => clsColor[p.cls] || (p.rawCp >= 0 ? '#f9fafb' : '#374151'));
-      const baseOpacity = evals.map(() => 0.85);
+      const moveTickVals = plies.filter(p => p % 2 === 1);
+      const moveTickText = moveTickVals.map(p => String(Math.ceil(p / 2)));
+      // Bar fill: classification color > best move moss > ivory/peat by eval sign
+      const clsColor = {{ blunder: '#9B3A3A', mistake: '#C4762A', inaccuracy: '#B8962E' }};
+      const baseColors = points.map(p => clsColor[p.cls] || (isBestMap[p.ply] ? '#4A7C59' : (p.rawCp >= 0 ? '#3A3A3A' : '#C8C8C8')));
+      const baseOpacity = evals.map(() => 1.0);
 
       function barLineAttrs(activePly) {{
         return {{
-          color: plies.map(p => p === activePly ? '#facc15' : '#6b7280'),
+          color: plies.map(p => p === activePly ? '#B8962E' : '#4A4A4A'),
           width: plies.map(p => p === activePly ? 2.5 : 0.5),
         }};
       }}
@@ -439,13 +537,13 @@ def render_svg_game_viewer(
       const staticAnnotations = [
         {{ text: 'Stockfish evaluation', xref: 'paper', yref: 'paper',
           x: 0.5, y: 1.07, xanchor: 'center', showarrow: false,
-          font: {{ size: 11, color: '#9ca3af' }} }},
-        {{ text: '\u25b2 {white_player}', xref: 'paper', yref: 'paper',
+          font: {{ size: 11, color: '#7B4F2E', family: 'DM Mono, monospace' }} }},
+        {{ text: '\u25b2 ' + whiteName, xref: 'paper', yref: 'paper',
           x: 1.0, y: -0.08, xanchor: 'right', showarrow: false,
-          font: {{ size: 11, color: '#e5e7eb' }} }},
-        {{ text: '{black_player} \u25bc', xref: 'paper', yref: 'paper',
+          font: {{ size: 11, color: '#1E3D2F', family: 'EB Garamond, serif' }} }},
+        {{ text: blackName + ' \u25bc', xref: 'paper', yref: 'paper',
           x: 0.0, y: -0.08, xanchor: 'left', showarrow: false,
-          font: {{ size: 11, color: '#9ca3af' }} }},
+          font: {{ size: 11, color: '#7B4F2E', family: 'EB Garamond, serif' }} }},
       ];
 
       function arrowAnnotation(activePly) {{
@@ -458,7 +556,7 @@ def render_svg_game_viewer(
           ax: positiveBar ? -40 : 40, ay: 0,
           axref: 'pixel', ayref: 'pixel',
           showarrow: true, arrowhead: 2, arrowsize: 1.2,
-          arrowwidth: 2, arrowcolor: '#facc15',
+          arrowwidth: 2, arrowcolor: '#B8962E',
           text: '', standoff: 2,
         }}];
       }}
@@ -468,41 +566,57 @@ def render_svg_game_viewer(
         marker: {{ color: baseColors.slice(), opacity: baseOpacity.slice(),
           line: barLineAttrs(null) }},
         text: points.map(p => p.textLabel), textposition: 'outside',
-        customdata: points.map(p => [p.rawCp, p.isMate, p.hoverText, p.cls, p.san]),
-        hovertemplate: 'Ply %{{y}} %{{customdata[4]}}<br>%{{customdata[2]}}%{{customdata[3] ? " — " + customdata[3] : ""}}<extra></extra>',
+        customdata: points.map(p => [
+          p.moveNumber,
+          p.player,
+          p.changeText,
+          p.hoverText,
+          p.cls ? ' (' + p.cls + ')' : '',
+          p.san ? ' \\u2014 ' + p.san : '',
+        ]),
+        hovertemplate: 'Move %{{customdata[0]}} (%{{customdata[1]}}) %{{customdata[5]}}<br>Change: %{{customdata[2]}}<br>Eval: %{{customdata[3]}}%{{customdata[4]}}<extra></extra>',
       }};
 
       const sfDiv = document.getElementById('{eval_div_id}');
       Plotly.newPlot(sfDiv, [trace], {{
         xaxis: {{
-          zeroline: true, zerolinecolor: '#6b7280', zerolinewidth: 2,
+          zeroline: true, zerolinecolor: '#1C1C1C', zerolinewidth: 2,
           range: [-DISPLAY_CP_CAP * 1.15, DISPLAY_CP_CAP * 1.15],
           tickvals: [-1200, -800, -400, -200, 0, 200, 400, 800, 1200],
           ticktext: ['-12', '-8', '-4', '-2', '0', '+2', '+4', '+8', '+12'],
-          tickfont: {{ size: 11, color: '#6b7280' }},
-          gridcolor: '#5a7a65', gridwidth: 1,
+          tickfont: {{ size: 11, color: '#1C1C1C', family: 'DM Mono, monospace' }},
+          gridcolor: '#888888', gridwidth: 0.5,
         }},
         yaxis: {{
-          title: {{ text: 'Move', font: {{ size: 12, color: '#6b7280' }} }},
+          title: {{ text: 'Move', font: {{ size: 12, color: '#1C1C1C', family: 'DM Mono, monospace' }} }},
           autorange: 'reversed',
-          tickfont: {{ size: 11, color: '#6b7280' }},
-          tickformat: 'd',
-          gridcolor: '#5a7a65', gridwidth: 1,
+          tickvals: moveTickVals,
+          ticktext: moveTickText,
+          tickfont: {{ size: 11, color: '#1C1C1C', family: 'DM Mono, monospace' }},
+          gridcolor: '#888888', gridwidth: 0.5,
         }},
         margin: {{ l: 55, r: 55, t: 36, b: 52 }},
-        bargap: 0.12, height: {sf_height},
-        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#3d5a48',
-        font: {{ color: '#d1d5db' }},
+        bargap: 0.06, height: {sf_height},
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+        shapes: [
+          {{ type: 'rect', xref: 'x', yref: 'paper',
+            x0: 0, x1: DISPLAY_CP_CAP * 1.15, y0: 0, y1: 1,
+            fillcolor: '#E8E8E8', opacity: 1.0, layer: 'below', line: {{ width: 0 }} }},
+          {{ type: 'rect', xref: 'x', yref: 'paper',
+            x0: -DISPLAY_CP_CAP * 1.15, x1: 0, y0: 0, y1: 1,
+            fillcolor: '#2A2A2A', opacity: 1.0, layer: 'below', line: {{ width: 0 }} }},
+        ],
+        font: {{ color: '#1C1C1C', family: 'EB Garamond, serif' }},
         annotations: [
           {{ text: 'Stockfish evaluation', xref: 'paper', yref: 'paper',
             x: 0.5, y: 1.07, xanchor: 'center', showarrow: false,
-            font: {{ size: 11, color: '#9ca3af' }} }},
-          {{ text: '\u25b2 {white_player}', xref: 'paper', yref: 'paper',
+            font: {{ size: 11, color: '#7B4F2E', family: 'DM Mono, monospace' }} }},
+          {{ text: '\u25b2 ' + whiteName, xref: 'paper', yref: 'paper',
             x: 1.0, y: -0.08, xanchor: 'right', showarrow: false,
-            font: {{ size: 11, color: '#e5e7eb' }} }},
-          {{ text: '{black_player} \u25bc', xref: 'paper', yref: 'paper',
+            font: {{ size: 11, color: '#1E3D2F', family: 'EB Garamond, serif' }} }},
+          {{ text: blackName + ' \u25bc', xref: 'paper', yref: 'paper',
             x: 0.0, y: -0.08, xanchor: 'left', showarrow: false,
-            font: {{ size: 11, color: '#9ca3af' }} }},
+            font: {{ size: 11, color: '#7B4F2E', family: 'EB Garamond, serif' }} }},
         ],
       }}, {{ displaylogo: false, responsive: true }}).then(() => {{
         if (!window._evalChart) window._evalChart = sfDiv;
@@ -514,7 +628,7 @@ def render_svg_game_viewer(
 
       window._updateSfHighlight = function(ply) {{
         Plotly.restyle(sfDiv, {{
-          'marker.opacity': [plies.map(p => p === ply ? 1.0 : 0.75)],
+          'marker.opacity': [plies.map(p => p === ply ? 1.0 : 1.0)],
           'marker.line.color': [barLineAttrs(ply).color],
           'marker.line.width': [barLineAttrs(ply).width],
         }});

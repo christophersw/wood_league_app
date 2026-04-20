@@ -6,7 +6,9 @@ app/ingest/__init__.py
 app/ingest/analysis_worker.py
 app/ingest/chesscom_client.py
 app/ingest/enqueue_analysis.py
+app/ingest/lc0_analysis_worker.py
 app/ingest/run_analysis_worker.py
+app/ingest/run_lc0_worker.py
 app/ingest/run_sync.py
 app/ingest/sync_service.py
 app/services/__init__.py
@@ -14,6 +16,7 @@ app/services/analysis_service.py
 app/services/auth_service.py
 app/services/game_search_service.py
 app/services/history_service.py
+app/services/lc0_service.py
 app/services/opening_analysis_service.py
 app/services/opening_book.py
 app/services/stockfish_service.py
@@ -29,6 +32,7 @@ app/web/components/charts.py
 app/web/components/game_board.py
 app/web/components/html_embed.py
 app/web/pages/__init__.py
+app/web/pages/analysis_status.py
 app/web/pages/game_analysis.py
 app/web/pages/game_search.py
 app/web/pages/opening_analysis.py

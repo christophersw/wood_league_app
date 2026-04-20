@@ -16,7 +16,7 @@ Pages:
 
 ```bash
 # Create and activate a virtual environment
-python -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 # Install dependencies (includes all scripts)
@@ -50,7 +50,7 @@ Create a `.env` file in the project root (or set these in your shell / Railway d
 ### Run the app
 
 ```bash
-streamlit run streamlit_app.py
+.venv/bin/python -m streamlit run streamlit_app.py
 ```
 
 ---

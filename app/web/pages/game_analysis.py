@@ -1,4 +1,5 @@
 import math
+from html import escape
 
 from sqlalchemy import and_, select
 import streamlit as st
@@ -16,6 +17,45 @@ require_auth()
 _settings = get_settings()
 
 service = AnalysisService()
+
+
+def _render_stat_card(
+    label: str,
+    value: str | int | float,
+    kind: str,
+    compact: bool = False,
+    extra_class: str = "",
+) -> None:
+    safe_label = escape(str(label))
+    safe_value = escape(str(value))
+    safe_kind = escape(str(kind))
+    compact_class = " analysis-stat--compact" if compact else ""
+    safe_extra_class = escape(extra_class.strip())
+    extra_class_attr = f" {safe_extra_class}" if safe_extra_class else ""
+    st.markdown(
+        f"""
+                <div class="analysis-stat{compact_class}{extra_class_attr}">
+                    <div class="analysis-stat__label">{safe_label}</div>
+                    <div class="analysis-stat-card analysis-stat-card--{safe_kind}">
+                        <div class="analysis-stat-card__value">{safe_value}</div>
+                    </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_stat_grid(blunders: int, mistakes: int, inaccuracies: int, best_moves: int | None) -> None:
+    cards = [
+        ("Best", best_moves if best_moves is not None else "-", "best"),
+        ("Inaccurate", inaccuracies or 0, "inaccuracy"),
+        ("Mistake", mistakes or 0, "mistake"),
+        ("Blunder", blunders or 0, "blunder"),
+    ]
+    cols = st.columns(4)
+    for col, (label, value, kind) in zip(cols, cards):
+        with col:
+            _render_stat_card(label, value, kind)
 
 
 def _set_queue_flash(level: str, message: str) -> None:
@@ -135,7 +175,7 @@ if analysis.url:
     details_line += f"  [View on Chess.com]({analysis.url})"
 if details_line:
     st.caption(details_line)
-st.caption(f"Game ID: {analysis.game_id}")
+st.caption(f"Game ID: [{analysis.game_id}](/game-analysis?game_id={analysis.game_id})")
 _render_queue_flash()
 
 # ── Lc0 WDL section ──────────────────────────────────────────────────────────
@@ -195,6 +235,19 @@ black_blunders    = analysis.black_blunders    if analysis.black_blunders    is 
 black_mistakes    = analysis.black_mistakes    if analysis.black_mistakes    is not None else derived_black["mistakes"]
 black_inaccuracies= analysis.black_inaccuracies if analysis.black_inaccuracies is not None else derived_black["inaccuracies"]
 
+# Count best moves per side from classification column
+def _count_best_moves(moves_df, white_to_move: bool) -> int | None:
+    if "classification" not in moves_df.columns or moves_df.empty:
+        return None
+    side_mod = 1 if white_to_move else 0
+    side = moves_df[(moves_df["ply"] % 2) == side_mod]
+    if side.empty:
+        return None
+    return int((side["classification"] == "best").sum())
+
+white_best_moves = _count_best_moves(analysis.moves, white_to_move=True)
+black_best_moves = _count_best_moves(analysis.moves, white_to_move=False)
+
 accuracy_is_derived = analysis.white_accuracy is None and white_accuracy is not None
 
 if white_accuracy is not None and black_accuracy is not None:
@@ -205,25 +258,69 @@ if white_accuracy is not None and black_accuracy is not None:
     if accuracy_is_derived:
         st.caption("Accuracy derived from move CPL (stored accuracy unavailable).")
 
-    col_w, col_b = st.columns(2)
+    col_w, col_divider, col_b = st.columns([1, 0.03, 1])
     with col_w:
-        st.markdown(f"**{analysis.white}** (White)")
-        st.metric("Accuracy", f"{white_accuracy:.1f}%")
-        a1, a2, a3 = st.columns(3)
-        a1.metric("Blunders",     white_blunders or 0)
-        a2.metric("Mistakes",     white_mistakes or 0)
-        a3.metric("Inaccuracies", white_inaccuracies or 0)
         if white_acpl is not None:
-            st.caption(f"Avg centipawn loss: {white_acpl:.1f}")
+            w_name_col, w_acc_col, w_acpl_col = st.columns([3.3, 1.35, 1.35])
+        else:
+            w_name_col, w_acc_col = st.columns([4.5, 1.5])
+        with w_name_col:
+            st.markdown(f"**{analysis.white}** (White)")
+        with w_acc_col:
+            _render_stat_card(
+                "Accuracy",
+                f"{white_accuracy:.1f}%",
+                "accuracy",
+                compact=True,
+                extra_class="analysis-stat--top-row-compact",
+            )
+        if white_acpl is not None:
+            with w_acpl_col:
+                _render_stat_card(
+                    "Avg CPL",
+                    f"{white_acpl:.1f}",
+                    "accuracy",
+                    compact=True,
+                    extra_class="analysis-stat--top-row-compact",
+                )
+        _render_stat_grid(
+            blunders=white_blunders or 0,
+            mistakes=white_mistakes or 0,
+            inaccuracies=white_inaccuracies or 0,
+            best_moves=white_best_moves,
+        )
+    with col_divider:
+        st.markdown('<div class="analysis-player-divider" aria-hidden="true"></div>', unsafe_allow_html=True)
     with col_b:
-        st.markdown(f"**{analysis.black}** (Black)")
-        st.metric("Accuracy", f"{black_accuracy:.1f}%")
-        b1, b2, b3 = st.columns(3)
-        b1.metric("Blunders",     black_blunders or 0)
-        b2.metric("Mistakes",     black_mistakes or 0)
-        b3.metric("Inaccuracies", black_inaccuracies or 0)
         if black_acpl is not None:
-            st.caption(f"Avg centipawn loss: {black_acpl:.1f}")
+            b_name_col, b_acc_col, b_acpl_col = st.columns([3.3, 1.35, 1.35])
+        else:
+            b_name_col, b_acc_col = st.columns([4.5, 1.5])
+        with b_name_col:
+            st.markdown(f"**{analysis.black}** (Black)")
+        with b_acc_col:
+            _render_stat_card(
+                "Accuracy",
+                f"{black_accuracy:.1f}%",
+                "accuracy",
+                compact=True,
+                extra_class="analysis-stat--top-row-compact",
+            )
+        if black_acpl is not None:
+            with b_acpl_col:
+                _render_stat_card(
+                    "Avg CPL",
+                    f"{black_acpl:.1f}",
+                    "accuracy",
+                    compact=True,
+                    extra_class="analysis-stat--top-row-compact",
+                )
+        _render_stat_grid(
+            blunders=black_blunders or 0,
+            mistakes=black_mistakes or 0,
+            inaccuracies=black_inaccuracies or 0,
+            best_moves=black_best_moves,
+        )
 
 # ── Queue buttons ─────────────────────────────────────────────────────────────
 missing_lc0 = not lc0_ready
