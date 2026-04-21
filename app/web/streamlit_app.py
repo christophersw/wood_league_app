@@ -26,13 +26,12 @@ _GENTLEMAN_CSS = """
     --c-peat:      #7B4F2E;
     --c-smoke:     #4A4A4A;
     --c-gilt:      #B8962E;
-    --c-best:      #4A7C59;
-    --c-mistake:   #C4762A;
-    --c-blunder:   #9B3A3A;
-    --c-best-bg:   rgba(74, 124, 89, 0.16);
-    --c-mistake-bg: rgba(196, 118, 42, 0.16);
-    --c-blunder-bg: rgba(155, 58, 58, 0.16);
-    --c-inaccuracy-bg: rgba(184, 150, 46, 0.16);
+    --c-best:      #123A28;
+    --c-brilliant: #2C6B4A;
+    --c-great:     #6FB28E;
+    --c-blunder:   #5C171D;
+    --c-mistake:   #8A2831;
+    --c-inaccuracy:#CC6A72;
   }
 
   /* ── Base typography ── */
@@ -202,28 +201,48 @@ _GENTLEMAN_CSS = """
   }
   .analysis-stat-card--best {
     border-color: var(--c-best);
-    background: var(--c-best-bg);
+    border-width: 3.75px;
+    background: transparent;
     color: var(--c-best);
+  }
+  .analysis-stat-card--brilliant {
+    border-color: var(--c-brilliant);
+    border-width: 3.75px;
+    background: transparent;
+    color: var(--c-brilliant);
+  }
+  .analysis-stat-card--great {
+    border-color: var(--c-great);
+    border-width: 3.75px;
+    background: transparent;
+    color: var(--c-great);
   }
   .analysis-stat-card--mistake {
     border-color: var(--c-mistake);
-    background: var(--c-mistake-bg);
+    border-width: 3.75px;
+    background: transparent;
     color: var(--c-mistake);
   }
   .analysis-stat-card--blunder {
     border-color: var(--c-blunder);
-    background: var(--c-blunder-bg);
+    border-width: 3.75px;
+    background: transparent;
     color: var(--c-blunder);
   }
   .analysis-stat-card--inaccuracy {
-    border-color: var(--c-gilt);
-    background: var(--c-inaccuracy-bg);
-    color: var(--c-gilt);
+    border-color: var(--c-inaccuracy);
+    border-width: 3.75px;
+    background: transparent;
+    color: var(--c-inaccuracy);
   }
   .analysis-stat-card--accuracy {
     border-color: var(--c-smoke);
     background: rgba(74, 74, 74, 0.1);
     color: var(--c-smoke);
+  }
+
+  .analysis-stat-row-gap {
+    height: 1rem;
   }
 
   .analysis-player-divider {

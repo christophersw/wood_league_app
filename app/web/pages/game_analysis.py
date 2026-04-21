@@ -45,17 +45,40 @@ def _render_stat_card(
     )
 
 
-def _render_stat_grid(blunders: int, mistakes: int, inaccuracies: int, best_moves: int | None) -> None:
-    cards = [
-        ("Best", best_moves if best_moves is not None else "-", "best"),
-        ("Inaccurate", inaccuracies or 0, "inaccuracy"),
-        ("Mistake", mistakes or 0, "mistake"),
-        ("Blunder", blunders or 0, "blunder"),
-    ]
-    cols = st.columns(4)
+def _render_top_stat_row(cards: list[tuple[str, str | int | float, str]]):
+    widths = [max(2.6, len(label) * 0.3 + 1.7) for label, _, _ in cards]
+    name_col, *stat_cols = st.columns([3.2, *widths])
+    for col, (label, value, kind) in zip(stat_cols, cards):
+        with col:
+            _render_stat_card(
+                label,
+                value,
+                kind,
+                compact=True,
+                extra_class="analysis-stat--top-row-compact",
+            )
+    return name_col
+
+
+def _render_three_stat_grid(cards: list[tuple[str, str | int | float, str]]) -> None:
+    cols = st.columns(len(cards))
     for col, (label, value, kind) in zip(cols, cards):
         with col:
             _render_stat_card(label, value, kind)
+
+
+def _render_stat_row_gap() -> None:
+    st.markdown('<div class="analysis-stat-row-gap" aria-hidden="true"></div>', unsafe_allow_html=True)
+
+
+def _count_classified_moves(moves_df, white_to_move: bool, classification: str) -> int | None:
+    if "classification" not in moves_df.columns or moves_df.empty:
+        return None
+    side_mod = 1 if white_to_move else 0
+    side = moves_df[(moves_df["ply"] % 2) == side_mod]
+    if side.empty:
+        return None
+    return int((side["classification"] == classification).sum())
 
 
 def _set_queue_flash(level: str, message: str) -> None:
@@ -194,30 +217,35 @@ if lc0_ready:
     if caption_parts:
         st.caption(" · ".join(caption_parts))
 
-    # Per-player WDL summary metrics
-    col_w, col_b = st.columns(2)
+    col_w, col_divider, col_b = st.columns([1, 0.03, 1])
     with col_w:
-        st.markdown(f"**{analysis.white}** (White)")
-        w1, w2, w3 = st.columns(3)
-        w1.metric("Avg Win %",  f"{analysis.lc0_white_win_prob:.1f}%")
-        w2.metric("Avg Draw %", f"{analysis.lc0_white_draw_prob:.1f}%")
-        w3.metric("Avg Loss %", f"{analysis.lc0_white_loss_prob:.1f}%")
-        b1, b2, b3 = st.columns(3)
-        b1.metric("Blunders",     analysis.lc0_white_blunders or 0)
-        b2.metric("Mistakes",     analysis.lc0_white_mistakes or 0)
-        b3.metric("Inaccuracies", analysis.lc0_white_inaccuracies or 0)
-        st.caption("Averages across all positions after each move.")
+        w_name_col = _render_top_stat_row([
+            ("Avg Win %", f"{analysis.lc0_white_win_prob:.1f}%", "accuracy"),
+            ("Avg Draw %", f"{analysis.lc0_white_draw_prob:.1f}%", "accuracy"),
+            ("Avg Loss %", f"{analysis.lc0_white_loss_prob:.1f}%", "accuracy"),
+        ])
+        with w_name_col:
+            st.markdown(f"**{analysis.white}** (White)")
+        _render_three_stat_grid([
+            ("Inaccurate", analysis.lc0_white_inaccuracies or 0, "inaccuracy"),
+            ("Mistake", analysis.lc0_white_mistakes or 0, "mistake"),
+            ("Blunder", analysis.lc0_white_blunders or 0, "blunder"),
+        ])
+    with col_divider:
+        st.markdown('<div class="analysis-player-divider" aria-hidden="true"></div>', unsafe_allow_html=True)
     with col_b:
-        st.markdown(f"**{analysis.black}** (Black)")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Avg Win %",  f"{analysis.lc0_black_win_prob:.1f}%")
-        c2.metric("Avg Draw %", f"{analysis.lc0_black_draw_prob:.1f}%")
-        c3.metric("Avg Loss %", f"{analysis.lc0_black_loss_prob:.1f}%")
-        d1, d2, d3 = st.columns(3)
-        d1.metric("Blunders",     analysis.lc0_black_blunders or 0)
-        d2.metric("Mistakes",     analysis.lc0_black_mistakes or 0)
-        d3.metric("Inaccuracies", analysis.lc0_black_inaccuracies or 0)
-        st.caption("Averages across all positions after each move.")
+        b_name_col = _render_top_stat_row([
+            ("Avg Win %", f"{analysis.lc0_black_win_prob:.1f}%", "accuracy"),
+            ("Avg Draw %", f"{analysis.lc0_black_draw_prob:.1f}%", "accuracy"),
+            ("Avg Loss %", f"{analysis.lc0_black_loss_prob:.1f}%", "accuracy"),
+        ])
+        with b_name_col:
+            st.markdown(f"**{analysis.black}** (Black)")
+        _render_three_stat_grid([
+            ("Inaccurate", analysis.lc0_black_inaccuracies or 0, "inaccuracy"),
+            ("Mistake", analysis.lc0_black_mistakes or 0, "mistake"),
+            ("Blunder", analysis.lc0_black_blunders or 0, "blunder"),
+        ])
 
 
 # ── Stockfish section ─────────────────────────────────────────────────────────
@@ -235,18 +263,12 @@ black_blunders    = analysis.black_blunders    if analysis.black_blunders    is 
 black_mistakes    = analysis.black_mistakes    if analysis.black_mistakes    is not None else derived_black["mistakes"]
 black_inaccuracies= analysis.black_inaccuracies if analysis.black_inaccuracies is not None else derived_black["inaccuracies"]
 
-# Count best moves per side from classification column
-def _count_best_moves(moves_df, white_to_move: bool) -> int | None:
-    if "classification" not in moves_df.columns or moves_df.empty:
-        return None
-    side_mod = 1 if white_to_move else 0
-    side = moves_df[(moves_df["ply"] % 2) == side_mod]
-    if side.empty:
-        return None
-    return int((side["classification"] == "best").sum())
-
-white_best_moves = _count_best_moves(analysis.moves, white_to_move=True)
-black_best_moves = _count_best_moves(analysis.moves, white_to_move=False)
+white_best_moves = _count_classified_moves(analysis.moves, white_to_move=True, classification="best")
+black_best_moves = _count_classified_moves(analysis.moves, white_to_move=False, classification="best")
+white_brilliant_moves = _count_classified_moves(analysis.moves, white_to_move=True, classification="brilliant")
+black_brilliant_moves = _count_classified_moves(analysis.moves, white_to_move=False, classification="brilliant")
+white_great_moves = _count_classified_moves(analysis.moves, white_to_move=True, classification="great")
+black_great_moves = _count_classified_moves(analysis.moves, white_to_move=False, classification="great")
 
 accuracy_is_derived = analysis.white_accuracy is None and white_accuracy is not None
 
@@ -283,12 +305,17 @@ if white_accuracy is not None and black_accuracy is not None:
                     compact=True,
                     extra_class="analysis-stat--top-row-compact",
                 )
-        _render_stat_grid(
-            blunders=white_blunders or 0,
-            mistakes=white_mistakes or 0,
-            inaccuracies=white_inaccuracies or 0,
-            best_moves=white_best_moves,
-        )
+        _render_three_stat_grid([
+            ("Best", white_best_moves if white_best_moves is not None else "-", "best"),
+            ("Brilliant", white_brilliant_moves if white_brilliant_moves is not None else "-", "brilliant"),
+            ("Great", white_great_moves if white_great_moves is not None else "-", "great"),
+        ])
+        _render_stat_row_gap()
+        _render_three_stat_grid([
+            ("Blunder", white_blunders or 0, "blunder"),
+            ("Mistake", white_mistakes or 0, "mistake"),
+            ("Inaccuracy", white_inaccuracies or 0, "inaccuracy"),
+        ])
     with col_divider:
         st.markdown('<div class="analysis-player-divider" aria-hidden="true"></div>', unsafe_allow_html=True)
     with col_b:
@@ -315,12 +342,17 @@ if white_accuracy is not None and black_accuracy is not None:
                     compact=True,
                     extra_class="analysis-stat--top-row-compact",
                 )
-        _render_stat_grid(
-            blunders=black_blunders or 0,
-            mistakes=black_mistakes or 0,
-            inaccuracies=black_inaccuracies or 0,
-            best_moves=black_best_moves,
-        )
+        _render_three_stat_grid([
+            ("Best", black_best_moves if black_best_moves is not None else "-", "best"),
+            ("Brilliant", black_brilliant_moves if black_brilliant_moves is not None else "-", "brilliant"),
+            ("Great", black_great_moves if black_great_moves is not None else "-", "great"),
+        ])
+        _render_stat_row_gap()
+        _render_three_stat_grid([
+            ("Blunder", black_blunders or 0, "blunder"),
+            ("Mistake", black_mistakes or 0, "mistake"),
+            ("Inaccuracy", black_inaccuracies or 0, "inaccuracy"),
+        ])
 
 # ── Queue buttons ─────────────────────────────────────────────────────────────
 missing_lc0 = not lc0_ready

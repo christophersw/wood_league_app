@@ -469,7 +469,7 @@ def render_svg_game_viewer(
         eval_json = json.dumps(eval_data)
         is_best_map_json = json.dumps(is_best_map)
         eval_count = len(eval_data)
-        sf_height = max(300, min(560, 210 + eval_count * 7))
+        sf_height = max(300, 210 + eval_count * 7)
         extra_height += sf_height + 20
         eval_div_id = f'{viewer_id}-eval2' if wdl_data else f'{viewer_id}-eval'
         charts_html += f"""
@@ -522,9 +522,16 @@ def render_svg_game_viewer(
       const evals = points.map(p => p.displayCp);
       const moveTickVals = plies.filter(p => p % 2 === 1);
       const moveTickText = moveTickVals.map(p => String(Math.ceil(p / 2)));
-      // Bar fill: classification color > best move moss > ivory/peat by eval sign
-      const clsColor = {{ blunder: '#9B3A3A', mistake: '#C4762A', inaccuracy: '#B8962E' }};
-      const baseColors = points.map(p => clsColor[p.cls] || (isBestMap[p.ply] ? '#4A7C59' : (p.rawCp >= 0 ? '#3A3A3A' : '#C8C8C8')));
+      // Bar fill: classification color > best move fallback > ivory/peat by eval sign
+      const clsColor = {{
+        best: '#1F5138',
+        brilliant: '#2F7552',
+        great: '#4E9A73',
+        blunder: '#742229',
+        mistake: '#A3353D',
+        inaccuracy: '#C95A61'
+      }};
+      const baseColors = points.map(p => clsColor[p.cls] || (isBestMap[p.ply] ? clsColor.best : (p.rawCp >= 0 ? '#3A3A3A' : '#C8C8C8')));
       const baseOpacity = evals.map(() => 1.0);
 
       function barLineAttrs(activePly) {{
