@@ -1,4 +1,4 @@
-"""Welcome tab — ELO trends, best recent games, and best games ever."""
+"""Welcome tab — accuracy trends, best recent games, and best games ever."""
 
 from __future__ import annotations
 
@@ -10,11 +10,18 @@ import streamlit as st
 
 from app.services.welcome_service import WelcomeService
 from app.web.components.auth import require_auth
-from app.web.components.charts import welcome_elo_chart
+from app.web.components.charts import player_accuracy_chart, player_elo_chart
 
 require_auth()
 
 _service = WelcomeService()
+
+_TIMEFRAMES = {
+    "Last 30 days":  30,
+    "Last 90 days":  90,
+    "Last 6 months": 180,
+    "Last year":     365,
+}
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -34,12 +41,7 @@ def _fmt_acpl(value: float | None) -> str:
 def _fmt_wdl(win: float | None, draw: float | None, loss: float | None) -> str:
     if win is None or draw is None or loss is None:
         return "—"
-    return f"W {win * 100:.0f}% · D {draw * 100:.0f}% · L {loss * 100:.0f}%"
-
-
-def _open_link(game_id: str) -> str:
-    safe_id = escape(str(game_id))
-    return f"/game-analysis?game_id={safe_id}"
+    return f"W {win:.0f}% · D {draw:.0f}% · L {loss:.0f}%"
 
 
 def _is_recent(played_at: object, days: int = 7) -> bool:
@@ -56,243 +58,210 @@ def _is_recent(played_at: object, days: int = 7) -> bool:
     return False
 
 
-# ── ELO metric cards ─────────────────────────────────────────────────────────
-
-
-def _render_elo_metrics(elo_df: pd.DataFrame) -> None:
-    """Show current ELO + 7-day delta for each club player."""
-    cutoff_recent = pd.Timestamp(datetime.utcnow() - timedelta(days=7))
-    players = sorted(elo_df["player"].unique())
-    cols = st.columns(max(len(players), 1))
-    for col, player in zip(cols, players):
-        pdata = elo_df[elo_df["player"] == player].sort_values("date")
-        current_rating = pdata["rating"].iloc[-1] if not pdata.empty else None
-        old_data = pdata[pdata["date"] < cutoff_recent]
-        old_rating = old_data["rating"].iloc[-1] if not old_data.empty else None
-        delta: float | None = None
-        if current_rating is not None and old_rating is not None:
-            delta = current_rating - old_rating
-        with col:
-            st.metric(
-                label=player,
-                value=f"{int(current_rating)}" if current_rating is not None else "—",
-                delta=f"{int(delta):+d}" if delta is not None else None,
-                delta_color="normal",
-            )
-
-
 # ── Game tables ───────────────────────────────────────────────────────────────
 
-
-_TABLE_CSS = """
+_TABLE_STYLE = """
 <style>
 .wc-table {
   width: 100%;
   border-collapse: collapse;
-  font-family: 'EB Garamond', Georgia, serif;
-  font-size: 0.95rem;
+  border: 2px solid #1A1A1A;
+  font-family: 'DM Mono', monospace;
 }
 .wc-table thead tr {
-  background: #EDE0C4;
-  border-bottom: 2px solid #B8962E;
+  background: #1A3A2A;
 }
 .wc-table thead th {
   font-family: 'DM Mono', monospace;
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #1E3D2F;
-  padding: 0.55rem 0.75rem;
-  text-align: left;
-}
-.wc-table tbody tr {
-  border-bottom: 1px solid #EDE0C4;
-  transition: background 0.15s;
-}
-.wc-table tbody tr:hover {
-  background: rgba(245, 237, 216, 0.55);
-}
-.wc-table tbody tr.wc-recent {
-  background: rgba(193, 127, 36, 0.12);
-  border-left: 3px solid #C17F24;
-}
-.wc-table tbody tr.wc-recent:hover {
-  background: rgba(193, 127, 36, 0.22);
-}
-.wc-table td {
-  padding: 0.48rem 0.75rem;
-  color: #1C1C1C;
-  vertical-align: middle;
-}
-.wc-rank {
-  font-family: 'DM Mono', monospace;
-  font-size: 0.78rem;
-  color: #7B4F2E;
+  color: #F2E6D0;
   font-weight: 600;
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  border: none;
 }
-.wc-acc {
-  font-family: 'DM Mono', monospace;
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: #1E3D2F;
+.wc-table tbody tr:nth-child(odd)  { background: #F9F3E8; }
+.wc-table tbody tr:nth-child(even) { background: #EFE4CC; }
+.wc-table tbody tr { border-bottom: 1px solid #D4C4A0; }
+.wc-table td {
+  padding: 0.42rem 0.6rem;
+  vertical-align: middle;
+  white-space: nowrap;
 }
-.wc-acpl {
-  font-family: 'DM Mono', monospace;
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: #3A5C45;
-}
-.wc-wdl {
-  font-family: 'DM Mono', monospace;
-  font-size: 0.72rem;
-  color: #4A4A4A;
-}
-.wc-date {
-  font-family: 'DM Mono', monospace;
-  font-size: 0.72rem;
-  color: #7B4F2E;
-}
-.wc-badge-recent {
+.wc-rank  { font-size: 0.72rem; color: #8B3A2A; font-weight: 600; }
+.wc-player { font-family: 'EB Garamond', Georgia, serif; font-size: 0.95rem; color: #1A1A1A; white-space: nowrap; }
+.wc-acc   { font-size: 0.82rem; font-weight: 700; color: #1A3A2A; }
+.wc-acpl  { font-size: 0.82rem; font-weight: 700; color: #4A6554; }
+.wc-wdl   { font-size: 0.68rem; color: #5A5A5A; }
+.wc-date  { font-size: 0.68rem; color: #8B3A2A; }
+.wc-badge {
   display: inline-block;
-  background: #C17F24;
-  color: #FDFCFB;
-  font-family: 'DM Mono', monospace;
-  font-size: 0.6rem;
+  background: #B53541;
+  color: #F2E6D0;
+  font-size: 0.55rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  border-radius: 3px;
-  padding: 1px 5px;
-  margin-left: 5px;
+  padding: 1px 4px;
+  margin-left: 4px;
   vertical-align: middle;
 }
-.wc-open-btn {
+.wc-open {
   display: inline-block;
-  border: 1px solid #B8962E;
-  color: #1E3D2F;
+  border: 1.5px solid #1A1A1A;
+  color: #1A3A2A;
   font-family: 'DM Mono', monospace;
-  font-size: 0.68rem;
-  letter-spacing: 0.06em;
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  border-radius: 3px;
-  padding: 3px 10px;
+  padding: 2px 8px;
   text-decoration: none;
   white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
 }
-.wc-open-btn:hover {
-  background: #1C1C1C;
-  color: #F5EDD8;
-  border-color: #1C1C1C;
-  text-decoration: none;
-}
+.wc-open:hover { background: #1A1A1A; color: #F2E6D0; text-decoration: none; }
 </style>
 """
 
 
 def _accuracy_table_html(df: pd.DataFrame) -> str:
-    rows_html = []
+    rows = []
     for rank, (_, row) in enumerate(df.iterrows(), start=1):
-        white = escape(str(row["white"]))
-        black = escape(str(row["black"]))
-        avg_acc = _fmt_accuracy(row.get("avg_accuracy"))
-        w_acc = _fmt_accuracy(row.get("white_accuracy"))
-        b_acc = _fmt_accuracy(row.get("black_accuracy"))
-        wdl = _fmt_wdl(row.get("wdl_win"), row.get("wdl_draw"), row.get("wdl_loss"))
-        played = row.get("played_at")
+        white    = escape(str(row["white"]))
+        black    = escape(str(row["black"]))
+        avg_acc  = _fmt_accuracy(row.get("avg_accuracy"))
+        w_acc    = _fmt_accuracy(row.get("white_accuracy"))
+        b_acc    = _fmt_accuracy(row.get("black_accuracy"))
+        wdl      = _fmt_wdl(row.get("wdl_win"), row.get("wdl_draw"), row.get("wdl_loss"))
+        played   = row.get("played_at")
         date_str = played.strftime("%d %b %Y") if hasattr(played, "strftime") else str(played)[:10]
-        link = _open_link(row["game_id"])
-        rows_html.append(
-            f"<tr>"
-            f'<td class="wc-rank">#{rank}</td>'
-            f"<td>&#9651; {white}</td>"
-            f"<td>&#9650; {black}</td>"
-            f'<td class="wc-acc">{avg_acc}</td>'
-            f'<td class="wc-acc">{w_acc} / {b_acc}</td>'
-            f'<td class="wc-wdl">{wdl}</td>'
-            f'<td class="wc-date">{escape(date_str)}</td>'
-            f'<td><a class="wc-open-btn" href="{link}" target="_blank">Open ↗</a></td>'
-            f"</tr>"
-        )
-    header = (
-        "<thead><tr>"
-        "<th>#</th><th>White</th><th>Black</th>"
-        "<th>Avg Acc</th><th>W / B Acc</th>"
-        "<th>Avg WDL</th><th>Date</th><th></th>"
-        "</tr></thead>"
-    )
-    return (
-        _TABLE_CSS
-        + f'<table class="wc-table">{header}<tbody>'
-        + "".join(rows_html)
-        + "</tbody></table>"
-    )
+        link     = escape(f"/game-analysis?game_id={row['game_id']}")
+        rows.append(f"""<tr>
+          <td class="wc-rank">#{rank}</td>
+          <td class="wc-player">♙ {white}</td>
+          <td class="wc-player">♟ {black}</td>
+          <td class="wc-acc">{avg_acc}</td>
+          <td class="wc-acc">{w_acc} / {b_acc}</td>
+          <td class="wc-wdl">{wdl}</td>
+          <td class="wc-date">{escape(date_str)}</td>
+          <td><a class="wc-open" href="{link}" target="_blank">Open</a></td>
+        </tr>""")
+    return _TABLE_STYLE + f"""<table class="wc-table">
+      <thead><tr>
+        <th>#</th><th>White</th><th>Black</th>
+        <th>Avg Acc</th><th>W / B Acc</th>
+        <th>Avg WDL</th><th>Date</th><th></th>
+      </tr></thead>
+      <tbody>{"".join(rows)}</tbody>
+    </table>"""
 
 
 def _acpl_table_html(df: pd.DataFrame, highlight_recent: bool = True) -> str:
-    rows_html = []
+    rows = []
     for rank, (_, row) in enumerate(df.iterrows(), start=1):
-        white = escape(str(row["white"]))
-        black = escape(str(row["black"]))
+        white    = escape(str(row["white"]))
+        black    = escape(str(row["black"]))
         avg_acpl = _fmt_acpl(row.get("avg_acpl"))
-        w_acpl = _fmt_acpl(row.get("white_acpl"))
-        b_acpl = _fmt_acpl(row.get("black_acpl"))
-        avg_acc = _fmt_accuracy(
+        w_acpl   = _fmt_acpl(row.get("white_acpl"))
+        b_acpl   = _fmt_acpl(row.get("black_acpl"))
+        avg_acc  = _fmt_accuracy(
             (row["white_accuracy"] + row["black_accuracy"]) / 2
             if row.get("white_accuracy") is not None and row.get("black_accuracy") is not None
             else None
         )
-        wdl = _fmt_wdl(row.get("wdl_win"), row.get("wdl_draw"), row.get("wdl_loss"))
-        played = row.get("played_at")
+        wdl      = _fmt_wdl(row.get("wdl_win"), row.get("wdl_draw"), row.get("wdl_loss"))
+        played   = row.get("played_at")
         date_str = played.strftime("%d %b %Y") if hasattr(played, "strftime") else str(played)[:10]
-        link = _open_link(row["game_id"])
-        recent = highlight_recent and _is_recent(played)
-        row_class = "wc-recent" if recent else ""
-        recent_badge = '<span class="wc-badge-recent">New</span>' if recent else ""
-        rows_html.append(
-            f'<tr class="{row_class}">'
-            f'<td class="wc-rank">#{rank}</td>'
-            f"<td>&#9651; {white}</td>"
-            f"<td>&#9650; {black}</td>"
-            f'<td class="wc-acpl">{avg_acpl}</td>'
-            f'<td class="wc-acpl">{w_acpl} / {b_acpl}</td>'
-            f'<td class="wc-acc">{avg_acc}</td>'
-            f'<td class="wc-wdl">{wdl}</td>'
-            f'<td class="wc-date">{escape(date_str)}{recent_badge}</td>'
-            f'<td><a class="wc-open-btn" href="{link}" target="_blank">Open ↗</a></td>'
-            f"</tr>"
-        )
-    header = (
-        "<thead><tr>"
-        "<th>#</th><th>White</th><th>Black</th>"
-        "<th>Avg ACPL</th><th>W / B ACPL</th>"
-        "<th>Avg Acc</th><th>Avg WDL</th><th>Date</th><th></th>"
-        "</tr></thead>"
-    )
-    return (
-        _TABLE_CSS
-        + f'<table class="wc-table">{header}<tbody>'
-        + "".join(rows_html)
-        + "</tbody></table>"
-    )
+        badge    = '<span class="wc-badge">New</span>' if highlight_recent and _is_recent(played) else ""
+        link     = escape(f"/game-analysis?game_id={row['game_id']}")
+        rows.append(f"""<tr>
+          <td class="wc-rank">#{rank}</td>
+          <td class="wc-player">♙ {white}</td>
+          <td class="wc-player">♟ {black}</td>
+          <td class="wc-acpl">{avg_acpl}</td>
+          <td class="wc-acpl">{w_acpl} / {b_acpl}</td>
+          <td class="wc-acc">{avg_acc}</td>
+          <td class="wc-wdl">{wdl}</td>
+          <td class="wc-date">{escape(date_str)}{badge}</td>
+          <td><a class="wc-open" href="{link}" target="_blank">Open</a></td>
+        </tr>""")
+    return _TABLE_STYLE + f"""<table class="wc-table">
+      <thead><tr>
+        <th>#</th><th>White</th><th>Black</th>
+        <th>Avg ACPL</th><th>W / B ACPL</th>
+        <th>Avg Acc</th><th>Avg WDL</th><th>Date</th><th></th>
+      </tr></thead>
+      <tbody>{"".join(rows)}</tbody>
+    </table>"""
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
 
 st.title("Woodland Chess Club")
-st.caption("Club overview — ELO trends, best played games, and all-time records.")
+st.caption("Club overview — accuracy trends, best played games, and all-time records.")
+
+# ── Filters ───────────────────────────────────────────────────────────────────
+
+st.subheader("Member Accuracy Trends")
+
+all_members = _service.get_club_member_names()
+col_tf, col_pl = st.columns([1, 2])
+with col_tf:
+    selected_label = st.selectbox(
+        "Timeframe",
+        options=list(_TIMEFRAMES.keys()),
+        index=1,
+        label_visibility="collapsed",
+    )
+with col_pl:
+    selected_players = st.multiselect(
+        "Players",
+        options=all_members,
+        default=all_members,
+        label_visibility="collapsed",
+        placeholder="All members",
+    )
+
+lookback = _TIMEFRAMES[selected_label]
+# Fallback: if the user deselects everyone, treat it as "all"
+active_players = selected_players if selected_players else all_members
+
+
+def _filter_by_player(df: pd.DataFrame) -> pd.DataFrame:
+    """Filter a player-column dataframe to active_players."""
+    if "player" in df.columns:
+        return df[df["player"].isin(active_players)]
+    return df
+
+
+def _filter_games_by_player(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep games where white or black is an active player."""
+    if df.empty:
+        return df
+    mask = df["white"].isin(active_players) | df["black"].isin(active_players)
+    return df[mask]
+
+
+acc_df = _service.get_player_accuracy_timeseries(lookback_days=lookback)
+acc_df = _filter_by_player(acc_df)
+
+if acc_df.empty:
+    st.info("No analysed games found for this period.")
+else:
+    fig = player_accuracy_chart(acc_df)
+    st.plotly_chart(fig, use_container_width=True)
 
 # ── ELO Trends ───────────────────────────────────────────────────────────────
 
 st.subheader("Member ELO Trends")
-elo_df = _service.get_all_players_elo_timeseries(lookback_days=90)
+elo_df = _service.get_all_players_elo_timeseries(lookback_days=lookback)
+elo_df = _filter_by_player(elo_df)
 
 if elo_df.empty:
-    st.info("No rating data available yet.")
+    st.info("No rating data available for this period.")
 else:
-    _render_elo_metrics(elo_df)
-    st.caption("★ Larger dots mark games played in the last 7 days")
-    fig = welcome_elo_chart(elo_df, recent_days=7)
-    st.plotly_chart(fig, use_container_width=True)
+    elo_fig = player_elo_chart(elo_df)
+    st.plotly_chart(elo_fig, use_container_width=True)
 
 st.divider()
 
@@ -302,10 +271,11 @@ st.subheader("Best Played Games — Recent")
 st.caption("Top 10 games from the last 30 days ranked by combined accuracy (Stockfish).")
 
 recent_df = _service.get_best_recent_games_by_accuracy(limit=10, lookback_days=30)
+recent_df = _filter_games_by_player(recent_df)
 if recent_df.empty:
     st.info("No analysed games found in the last 30 days.")
 else:
-    st.markdown(_accuracy_table_html(recent_df), unsafe_allow_html=True)
+    st.html(_accuracy_table_html(recent_df))
 
 st.divider()
 
@@ -318,7 +288,8 @@ st.caption(
 )
 
 ever_df = _service.get_best_all_time_games_by_acpl(limit=10)
+ever_df = _filter_games_by_player(ever_df)
 if ever_df.empty:
     st.info("No analysed games found.")
 else:
-    st.markdown(_acpl_table_html(ever_df, highlight_recent=True), unsafe_allow_html=True)
+    st.html(_acpl_table_html(ever_df, highlight_recent=True))

@@ -92,7 +92,7 @@ def elo_trend_chart(df: pd.DataFrame, selected_player: str):
     )
     fig.update_traces(opacity=0.35)
     fig.for_each_trace(
-        lambda trace: trace.update(opacity=1.0, line=dict(width=3))
+        lambda trace: trace.update(opacity=1.0, line=dict(width=3.5))
         if trace.name == selected_player
         else None
     )
@@ -316,52 +316,26 @@ def opening_wdl_stacked(metrics_df: pd.DataFrame):
 
 
 def welcome_elo_chart(df: pd.DataFrame, recent_days: int = 7) -> go.Figure:
-    """ELO trend chart for all club players.
-
-    All players are shown at full opacity with distinct colours.
-    Data points from the last *recent_days* are rendered as larger markers
-    so recent rating changes stand out at a glance.
-    """
+    """ELO trend chart for all club players."""
     if df.empty:
         return go.Figure()
 
     fig = go.Figure()
-    cutoff = pd.Timestamp(datetime.utcnow() - timedelta(days=recent_days))
 
     for i, player in enumerate(sorted(df["player"].unique())):
         pdata = df[df["player"] == player].sort_values("date")
         color = _GP_COLORWAY[i % len(_GP_COLORWAY)]
 
-        # Continuous line for the full history
         fig.add_trace(
             go.Scatter(
                 x=pdata["date"],
                 y=pdata["rating"],
                 mode="lines",
                 name=player,
-                line=dict(color=color, width=2.5),
+                line=dict(color=color, width=3.5),
                 hovertemplate="%{fullData.name}<br>%{x|%d %b %Y}<br><b>%{y:.0f}</b><extra></extra>",
             )
         )
-
-        # Larger markers for recent data points
-        recent = pdata[pdata["date"] >= cutoff]
-        if not recent.empty:
-            fig.add_trace(
-                go.Scatter(
-                    x=recent["date"],
-                    y=recent["rating"],
-                    mode="markers",
-                    showlegend=False,
-                    marker=dict(
-                        color=color,
-                        size=11,
-                        symbol="circle",
-                        line=dict(color=_GP["ebony"], width=1.5),
-                    ),
-                    hovertemplate="%{fullData.name}<br>%{x|%d %b %Y}<br><b>%{y:.0f}</b> ★ recent<extra></extra>",
-                )
-            )
 
     fig.update_layout(
         **_gp_layout(
@@ -463,7 +437,7 @@ def player_fingerprint_radar(df: pd.DataFrame):
             theta=theta,
             fill="toself",
             name="Opening Fingerprint",
-            line=dict(color=_GP["crimson"], width=3),
+            line=dict(color=_GP["crimson"], width=3.5),
             marker=dict(size=8, color=_GP["whisky"], line=dict(color=_GP["ebony"], width=1.5)),
             fillcolor="rgba(181,53,65,0.15)",
         )
@@ -581,4 +555,90 @@ def opening_wins_losses_bar(metrics_df: pd.DataFrame, top_n: int = 15) -> go.Fig
         margin=dict(l=10, r=10, t=70, b=180),
     ))
 
+    return fig
+
+
+def player_elo_chart(df: pd.DataFrame, recent_days: int = 7) -> go.Figure:
+    """Average ELO per player over time."""
+    if df.empty:
+        return go.Figure()
+
+    # Remove data points where a player's rating dropped more than 100 from
+    # the previous reading — these are almost certainly bad/missing data.
+    cleaned = []
+    for player in df["player"].unique():
+        pdata = df[df["player"] == player].sort_values("date").copy()
+        pdata = pdata[pdata["rating"].diff().fillna(0) >= -100]
+        cleaned.append(pdata)
+    df = pd.concat(cleaned) if cleaned else df
+
+    fig = go.Figure()
+
+    for i, player in enumerate(sorted(df["player"].unique())):
+        pdata = df[df["player"] == player].sort_values("date")
+        color = _GP_COLORWAY[i % len(_GP_COLORWAY)]
+
+        fig.add_trace(
+            go.Scatter(
+                x=pdata["date"],
+                y=pdata["rating"],
+                mode="lines",
+                name=player,
+                line=dict(color=color, width=3.5),
+                hovertemplate="%{fullData.name}<br>%{x|%d %b %Y}<br><b>%{y:.0f}</b><extra></extra>",
+            )
+        )
+
+    rating_min = df["rating"].min()
+    rating_max = df["rating"].max()
+    padding = max((rating_max - rating_min) * 0.05, 20)
+    fig.update_layout(
+        **_gp_layout(
+            title_text="Average ELO by Player",
+            legend_title="Player",
+            margin=dict(l=20, r=20, t=56, b=20),
+            hovermode="x unified",
+            yaxis=dict(
+                title="ELO Rating",
+                range=[rating_min - padding, rating_max + padding],
+            ),
+        )
+    )
+    return fig
+
+
+def player_accuracy_chart(df: pd.DataFrame, recent_days: int = 7) -> go.Figure:
+    """Average accuracy per player over time.
+
+    Y-axis floored at the data minimum for readability.
+    """
+    if df.empty:
+        return go.Figure()
+
+    fig = go.Figure()
+
+    for i, player in enumerate(sorted(df["player"].unique())):
+        pdata = df[df["player"] == player].sort_values("date")
+        color = _GP_COLORWAY[i % len(_GP_COLORWAY)]
+
+        fig.add_trace(
+            go.Scatter(
+                x=pdata["date"],
+                y=pdata["accuracy"],
+                mode="lines",
+                name=player,
+                line=dict(color=color, width=3.5),
+                hovertemplate="%{fullData.name}<br>%{x|%d %b %Y}<br><b>%{y:.1f}%</b><extra></extra>",
+            )
+        )
+
+    fig.update_layout(
+        **_gp_layout(
+            title_text="Average Accuracy by Player",
+            legend_title="Player",
+            margin=dict(l=20, r=20, t=56, b=20),
+            hovermode="x unified",
+            yaxis=dict(title="Accuracy (%)", range=[max(0, df["accuracy"].min() - 5), 100]),
+        )
+    )
     return fig

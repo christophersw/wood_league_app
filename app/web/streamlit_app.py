@@ -493,6 +493,12 @@ def main() -> None:
         icon="📊",
         url_path="analysis-status",
     )
+    members_page = st.Page(
+        "app/web/pages/club_members.py",
+        title="Club Members",
+        icon="♟",
+        url_path="club-members",
+    )
 
     authenticated = not settings.auth_enabled or is_authenticated()
 
@@ -501,20 +507,20 @@ def main() -> None:
             _logout = st.Page(logout_page, title="Sign Out", icon="🚪", url_path="logout")
             pages: dict | list = {
                 "": [welcome_page, opening_analysis_page, analysis_page, search_page],
-                "Admin": [status_page],
+                "Admin": [status_page, members_page],
                 "Account": [_logout],
             }
         else:
             _login = st.Page(login_page, title="Sign In", icon="🔑", url_path="login")
             pages = {
                 "": [welcome_page, opening_analysis_page, analysis_page, search_page],
-                "Admin": [status_page],
+                "Admin": [status_page, members_page],
                 "Account": [_login],
             }
     else:
         pages = {
             "": [welcome_page, opening_analysis_page, analysis_page, search_page],
-            "Admin": [status_page],
+            "Admin": [status_page, members_page],
         }
 
     nav = st.navigation(pages, position="sidebar")

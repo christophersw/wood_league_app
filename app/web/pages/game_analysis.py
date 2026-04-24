@@ -174,9 +174,10 @@ def _derive_side_stats(moves_df, white_to_move: bool) -> dict[str, float | int |
 # ── Page header ──────────────────────────────────────────────────────────────
 st.title("Game Analysis")
 
-if "pending_game_id" in st.session_state:
-    st.query_params["game_id"] = st.session_state.pop("pending_game_id")
 game_id = st.query_params.get("game_id", "")
+if not game_id and "pending_game_id" in st.session_state:
+    game_id = st.session_state.pop("pending_game_id")
+    st.query_params["game_id"] = game_id
 
 if not game_id:
     st.warning("No game selected. Choose a game from My History or Game Search.")

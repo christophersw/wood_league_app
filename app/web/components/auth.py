@@ -96,7 +96,6 @@ def login_page() -> None:
             st.session_state[_USER_CACHE_KEY] = user
             st.session_state.pop(_LOGGED_OUT_KEY, None)
             _set_auth_cookie(token, int(get_settings().auth_token_ttl_seconds))
-            st.rerun()
 
 
 def logout_page() -> None:
@@ -111,35 +110,13 @@ def logout_page() -> None:
 
 
 def render_admin_sidebar() -> None:
-    """Render signed-in user info and admin invite form in the sidebar."""
+    """Render signed-in user info in the sidebar."""
     user = get_current_user()
     if user is None:
         return
 
     with st.sidebar:
         st.caption(f"Signed in as **{user.email}** ({user.role})")
-        if user.role == "admin":
-            st.markdown("---")
-            st.subheader("Invite Member")
-            service = AuthService()
-            with st.form("create_member_form", clear_on_submit=True):
-                new_email = st.text_input("Email", key="create_member_email")
-                new_password = st.text_input(
-                    "Temporary password", type="password", key="create_member_password"
-                )
-                role = st.selectbox(
-                    "Role", ["member", "admin"], index=0, key="create_member_role"
-                )
-                create_submitted = st.form_submit_button(
-                    "Create User", width='stretch'
-                )
-
-            if create_submitted:
-                try:
-                    created = service.create_user(new_email, new_password, role=role)
-                    st.success(f"Created user: {created.email} ({created.role})")
-                except ValueError as exc:
-                    st.error(str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +145,11 @@ def _set_auth_cookie(token: str, ttl_seconds: int) -> None:
         "%a, %d %b %Y %H:%M:%S GMT"
     )
     cookie_str = f"{_COOKIE_NAME}={token}; expires={expires}; path=/; SameSite=Lax"
+    # Set cookie and reload in the same script so the cookie is committed before
+    # the next page load. st.rerun() would trigger a new WebSocket render cycle
+    # before the browser processes this delta, so the cookie would never be set.
     st.html(
-        f"<script>document.cookie = {json.dumps(cookie_str)};</script>",
+        f"<script>document.cookie = {json.dumps(cookie_str)}; window.location.reload();</script>",
         unsafe_allow_javascript=True,
     )
 
