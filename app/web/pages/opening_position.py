@@ -14,6 +14,7 @@ Shows a static board of the opening position plus:
 
 from __future__ import annotations
 
+import base64
 from html import escape
 
 import chess
@@ -39,7 +40,7 @@ _wsvc = WelcomeService()
 # ── Board colours (Du Bois palette) ──────────────────────────────────────────
 _BOARD_COLORS = {
     "square light": "#F2E6D0",
-    "square dark": "#1A3A2A",
+    "square dark": "#4A8C62",
     "margin": "#1A1A1A",
     "coord": "#D4A843",
 }
@@ -166,12 +167,25 @@ def _opening_tree_html(tree_ctx: dict, opening_epd: str) -> tuple[str, int]:
         return "", 0
 
     # ── Layout constants ─────────────────────────────────────────────────────
-    NW, NH = 168, 82       # node width, height
+    NW, NH = 248, 110      # node width, height (wider/taller to fit board preview)
+    BOARD_SZ = 94          # chess board preview pixel size
     H_GAP = 54             # horizontal gap between lineage nodes
     V_GAP = 14             # vertical gap between child nodes
     FORK_GAP = 72          # gap from current-node right edge to children col
     LABEL_H = 22           # label row above nodes
     PAD = 22               # outer padding
+
+    # ── Board preview helper ─────────────────────────────────────────────────
+    def _board_img_href(fen: str | None) -> str | None:
+        if not fen:
+            return None
+        try:
+            board = chess.Board(fen)
+            svg_str = chess.svg.board(board, size=BOARD_SZ, colors=_BOARD_COLORS, coordinates=False)
+            encoded = base64.b64encode(svg_str.encode("utf-8")).decode("ascii")
+            return f"data:image/svg+xml;base64,{encoded}"
+        except Exception:
+            return None
 
     n_lin = len(lineage)
     n_ch = len(children)
@@ -278,17 +292,21 @@ def _opening_tree_html(tree_ctx: dict, opening_epd: str) -> tuple[str, int]:
         eco = str(node.get("eco") or "").upper()
         raw_name = str(node.get("name") or "Unknown")
         games = int(node.get("games") or 0)
+        fen = node.get("fen") or node.get("epd")
         name_lines = _wrap(raw_name)
 
         if is_current:
             fill, stroke, sw_b = "#1A3A2A", "#D4A843", "3"
             ec, nc, gc = "#D4A843", "#F2E6D0", "#7EAD8A"
+            board_border = "#D4A843"
         elif is_child:
             fill, stroke, sw_b = "#EFE4CC", "#1A1A1A", "1.5"
             ec, nc, gc = "#8B3A2A", "#1A3A2A", "#5A5A5A"
+            board_border = "#1A1A1A"
         else:
             fill, stroke, sw_b = "#F2E6D0", "#1A1A1A", "1.5"
             ec, nc, gc = "#8B3A2A", "#1A3A2A", "#5A5A5A"
+            board_border = "#1A1A1A"
 
         if oid:
             url = f"/opening-position?opening_id={oid}"
@@ -299,11 +317,26 @@ def _opening_tree_html(tree_ctx: dict, opening_epd: str) -> tuple[str, int]:
             open_tag = '<g class="ot-node">'
             close_tag = '</g>'
 
+        # Board preview: right-aligned, vertically centred, with 1px border rect
+        bx = x + NW - BOARD_SZ - 6
+        by = y + (NH - BOARD_SZ) / 2
+        img_href = _board_img_href(fen)
+
         p.append(open_tag)
         p.append(
             f'<rect x="{x:.0f}" y="{y:.0f}" width="{NW}" height="{NH}" '
             f'fill="{fill}" stroke="{stroke}" stroke-width="{sw_b}"/>'
         )
+        # Board preview
+        if img_href:
+            p.append(
+                f'<rect x="{bx:.0f}" y="{by:.0f}" width="{BOARD_SZ}" height="{BOARD_SZ}" '
+                f'fill="none" stroke="{board_border}" stroke-width="1" opacity="0.4"/>'
+            )
+            p.append(
+                f'<image x="{bx:.0f}" y="{by:.0f}" width="{BOARD_SZ}" height="{BOARD_SZ}" '
+                f'href="{img_href}" preserveAspectRatio="xMidYMid meet"/>'
+            )
         # ECO code
         p.append(
             f'<text x="{x + 10:.0f}" y="{y + 16:.0f}" '
@@ -313,12 +346,12 @@ def _opening_tree_html(tree_ctx: dict, opening_epd: str) -> tuple[str, int]:
         # Name (up to 2 lines)
         for k, line in enumerate(name_lines):
             p.append(
-                f'<text x="{x + 10:.0f}" y="{y + 30 + k * 15:.0f}" '
+                f'<text x="{x + 10:.0f}" y="{y + 32 + k * 16:.0f}" '
                 f'font-family="Georgia,serif" font-size="12" fill="{nc}">{escape(line)}</text>'
             )
         # Game count
         p.append(
-            f'<text x="{x + 10:.0f}" y="{y + 70:.0f}" '
+            f'<text x="{x + 10:.0f}" y="{y + NH - 13:.0f}" '
             f'font-family="monospace" font-size="9" fill="{gc}">{games} games</text>'
         )
         p.append(close_tag)
@@ -494,7 +527,7 @@ else:
         unsafe_allow_javascript=True,
     )
     _tree_html, _tree_h = _opening_tree_html(tree_ctx, opening["epd"])
-    _components.html(_tree_html, height=_tree_h, scrolling=False)
+    _components.html(_tree_html, height=_tree_h + 20, scrolling=True)
     _pct_note = (
         f" ({selected_games / total_scoped_games * 100.0:.1f}% of scoped games)"
         if total_scoped_games else ""
