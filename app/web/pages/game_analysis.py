@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.ingest.enqueue_analysis import enqueue_game
 from app.services.analysis_service import AnalysisService
 from app.storage.database import get_session
+from app.services.opening_labels import opening_display_label
 from app.storage.models import AnalysisJob
 from app.web.components.auth import require_auth
 from app.web.components.game_board import render_svg_game_viewer
@@ -589,6 +590,22 @@ if _game_slug:
     st.caption(f"Game: [{_game_slug}](/game-analysis?slug={_game_slug})")
 else:
     st.caption(f"Game ID: [{analysis.game_id}](/game-analysis?game_id={analysis.game_id})")
+
+# ── Opening label ─────────────────────────────────────────────────────────────
+if analysis.eco_code or analysis.opening_name:
+    _op_name = opening_display_label(analysis.eco_code, analysis.lichess_opening, analysis.opening_name, analysis.pgn)
+    _op_href = f"/opening-position?opening_id={analysis.opening_id}" if analysis.opening_id else "/opening-position"
+    st.html(
+        '<style>'
+        '.ga-open{'
+        'display:inline-block;border:1.5px solid #1A1A1A;color:#1A3A2A;'
+        'font-family:"DM Mono",monospace;font-size:0.6rem;letter-spacing:0.08em;'
+        'text-transform:uppercase;padding:2px 8px;text-decoration:none;white-space:nowrap}'
+        '.ga-open:hover{background:#1A1A1A;color:#F2E6D0;text-decoration:none}'
+        '</style>'
+        f'<a class="ga-open" href="{escape(_op_href)}">{escape(_op_name)}</a>'
+    )
+
 _render_queue_flash()
 
 # ── Lc0 WDL section ──────────────────────────────────────────────────────────

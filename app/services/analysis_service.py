@@ -7,6 +7,7 @@ import chess.pgn
 import pandas as pd
 from sqlalchemy import select
 
+from app.services.opening_book import matched_opening_from_pgn
 from app.storage.database import get_session, init_db
 from app.storage.models import Game, GameAnalysis, MoveAnalysis, Lc0GameAnalysis, Lc0MoveAnalysis
 
@@ -52,6 +53,10 @@ class GameAnalysisData:
     lc0_black_inaccuracies: int | None = None
     lc0_engine_nodes: int | None = None
     lc0_network_name: str | None = None
+    eco_code: str = ""
+    opening_name: str = ""
+    lichess_opening: str | None = None
+    opening_id: int | None = None
 
 
 class AnalysisService:
@@ -103,6 +108,13 @@ class AnalysisService:
             # Extract Lc0 scalars before session closes
             lc0_kwargs = _lc0_summary_kwargs(lga)
 
+            # Common game metadata used in both return paths
+            _eco_code = db_game.eco_code or ""
+            _opening_name = db_game.opening_name or ""
+            _lichess_opening = db_game.lichess_opening
+            _opening_match = matched_opening_from_pgn(pgn_text, max_ply=20)
+            _opening_id = _opening_match[0] if _opening_match else None
+
             if ga is not None and ga.analyzed_at is not None and ga.moves:
                 moves_df = _moves_from_db(ga.moves)
                 return GameAnalysisData(
@@ -124,6 +136,10 @@ class AnalysisService:
                     white_rating=db_game.white_rating,
                     black_rating=db_game.black_rating,
                     lc0_moves=lc0_moves_df,
+                    eco_code=_eco_code,
+                    opening_name=_opening_name,
+                    lichess_opening=_lichess_opening,
+                    opening_id=_opening_id,
                     **lc0_kwargs,
                 )
 
@@ -159,6 +175,10 @@ class AnalysisService:
             white_rating=db_game.white_rating,
             black_rating=db_game.black_rating,
             lc0_moves=lc0_moves_df,
+            eco_code=_eco_code,
+            opening_name=_opening_name,
+            lichess_opening=_lichess_opening,
+            opening_id=_opening_id,
             **lc0_kwargs,
         )
 
