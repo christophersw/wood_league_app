@@ -20,7 +20,7 @@ def _get_url() -> str:
     settings = get_settings()
     if settings.database_url:
         return _normalize_database_url(settings.database_url)
-    return "sqlite+pysqlite:///woodland_chess.db"
+    return "sqlite+pysqlite:///wood_league_chess.db"
 
 
 def run_migrations_offline() -> None:

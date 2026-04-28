@@ -1,5 +1,5 @@
 [project]
-name = "woodland-chess"
+name = "wood-league-chess"
 version = "0.1.0"
 description = "Club chess analytics MVP"
 readme = "README.md"

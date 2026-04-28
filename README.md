@@ -1,32 +1,32 @@
-# Woodland Chess
+# Wood League Chess
 
-Woodland Chess is a multi-repo chess analysis system built around a Streamlit app, a shared PostgreSQL database, a Railway dispatcher, and two RunPod workers.
+Wood League Chess is a multi-repo chess analysis system built around a Streamlit app, a shared PostgreSQL database, a Railway dispatcher, and two RunPod workers.
 
-This repository, `woodland_app`, is the user-facing web app. It renders club history, game analysis, opening pages, search, and status views from data produced by the ingest and engine-analysis pipeline.
+This repository, `wood_league_app`, is the user-facing web app. It renders club history, game analysis, opening pages, search, and status views from data produced by the ingest and engine-analysis pipeline.
 
 ## Repos at a Glance
 
 | Repo | Purpose |
 |---|---|
-| [`woodland_app`](.) | Streamlit web app, Alembic migrations, app models, pages, and UI |
-| [`woodland_dispatchers`](../woodland_dispatchers/README.md) | Railway dispatcher for Chess.com ingest and RunPod job submission |
-| [`woodland_stockfish_runpod`](../woodland_stockfish_runpod/README.md) | RunPod Stockfish worker that writes `game_analysis` and `move_analysis` |
-| [`woodland_lc0_runpod`](../woodland_lc0_runpod/README.md) | RunPod Lc0 worker that writes `lc0_game_analysis` and `lc0_move_analysis` |
+| [`wood_league_app`](.) | Streamlit web app, Alembic migrations, app models, pages, and UI |
+| [`wood_league_dispatchers`](../wood_league_dispatchers/README.md) | Railway dispatcher for Chess.com ingest and RunPod job submission |
+| [`wood_league_stockfish_runpod`](../wood_league_stockfish_runpod/README.md) | RunPod Stockfish worker that writes `game_analysis` and `move_analysis` |
+| [`wood_league_lc0_runpod`](../wood_league_lc0_runpod/README.md) | RunPod Lc0 worker that writes `lc0_game_analysis` and `lc0_move_analysis` |
 
 ## System Flow
 
 ```mermaid
 flowchart LR
-  A[Chess.com API] --> B[woodland_dispatchers\nIngest sweep]
+  A[Chess.com API] --> B[wood_league_dispatchers\nIngest sweep]
   B --> C[(PostgreSQL)]
   B --> D[Queue analysis_jobs]
-  D --> E[woodland_dispatchers\nSubmit Stockfish jobs]
-  D --> F[woodland_dispatchers\nSubmit Lc0 jobs]
-  E --> G[woodland_stockfish_runpod\nRunPod worker]
-  F --> H[woodland_lc0_runpod\nRunPod worker]
+  D --> E[wood_league_dispatchers\nSubmit Stockfish jobs]
+  D --> F[wood_league_dispatchers\nSubmit Lc0 jobs]
+  E --> G[wood_league_stockfish_runpod\nRunPod worker]
+  F --> H[wood_league_lc0_runpod\nRunPod worker]
   G --> C
   H --> C
-  C --> I[woodland_app\nStreamlit UI]
+  C --> I[wood_league_app\nStreamlit UI]
 ```
 
 ## What the App Shows
@@ -41,9 +41,9 @@ flowchart LR
 
 - [Database ERD](docs/database-erd.md)
 - [ERD source](docs/erd.mmd)
-- [Dispatcher README](../woodland_dispatchers/README.md)
-- [Stockfish RunPod README](../woodland_stockfish_runpod/README.md)
-- [Lc0 RunPod README](../woodland_lc0_runpod/README.md)
+- [Dispatcher README](../wood_league_dispatchers/README.md)
+- [Stockfish RunPod README](../wood_league_stockfish_runpod/README.md)
+- [Lc0 RunPod README](../wood_league_lc0_runpod/README.md)
 
 ---
 
@@ -93,7 +93,7 @@ Create a `.env` file in the project root (or set these in your shell / Railway d
 - **App only**: run this repo against an already-populated database
 - **App + ingest**: run [`app.ingest.run_sync`](app/ingest/run_sync.py) manually to pull fresh games from Chess.com
 - **App + local engine workers**: use the local Stockfish / Lc0 commands below for development
-- **Full deployed flow**: use [`woodland_dispatchers`](../woodland_dispatchers/README.md) with the two RunPod worker repos
+- **Full deployed flow**: use [`wood_league_dispatchers`](../wood_league_dispatchers/README.md) with the two RunPod worker repos
 
 ---
 
@@ -562,7 +562,7 @@ On first startup with auth enabled, the admin account is created automatically i
 
 ## Architecture notes
 
-- If no `DATABASE_URL` is set, the app uses a local SQLite file (`woodland_chess.db`).
+- If no `DATABASE_URL` is set, the app uses a local SQLite file (`wood_league_chess.db`).
 - Demo/placeholder data is only shown when the database has no player or game rows.
 - The `Game` table stores one row per unique game. `GameParticipant` stores each tracked player's perspective on that game (color, result, rating, blunder counts), so games between two tracked players appear correctly in both players' history.
 - Stockfish analysis results are stored in `GameAnalysis` (per-game accuracy/blunder summary) and `MoveAnalysis` (per-move eval, best move, CPL, classification).
