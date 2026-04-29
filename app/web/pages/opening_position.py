@@ -456,7 +456,7 @@ games_df = _svc.get_games(opening, lookback_days=lookback, players=active_player
 board_col, pie_col = st.columns([1, 1])
 
 with board_col:
-    st.subheader("Opening Position")
+    st.subheader(f"{opening['name']}")
     board = chess.Board(opening["final_fen"])
     svg = chess.svg.board(
         board,
@@ -474,7 +474,7 @@ with board_col:
     render_html_iframe(board_html, height=360)
 
 with pie_col:
-    st.subheader("Opening Position Share")
+    st.subheader(f"Share — {selected_label}")
     st.caption(f"Scope: {scope_label}")
     share_df = _svc.opening_share(
         opening,
@@ -546,7 +546,7 @@ if games_df.empty:
 total_games = games_df["game_id"].nunique()
 st.caption(
     f"**{total_games}** club games played through this opening "
-    f"in the {selected_label.lower()}."
+    f"— {scope_label}."
 )
 
 # ── Per-player stats ──────────────────────────────────────────────────────────
@@ -597,9 +597,9 @@ st.divider()
 
 # ── Frequency over time ───────────────────────────────────────────────────────
 
-st.subheader("How Often is This Opening Played?")
+st.subheader(f"How Often is This Opening Played? — {selected_label}")
 st.caption(
-    "Dashed line is monthly total unique games. Solid lines are per-player entries in the same scope."
+    f"Dashed line is monthly total unique games; solid lines are per-player entries. Scope: {scope_label}."
 )
 freq_df = _svc.frequency_over_time(games_df)
 if not freq_df.empty:
@@ -612,7 +612,8 @@ st.divider()
 
 # ── Game table ────────────────────────────────────────────────────────────────
 
-st.subheader("Games")
+st.subheader(f"Games — {selected_label}")
+st.caption(f"Scope: {scope_label}")
 
 # Filters above the table
 tcol1, tcol2, tcol3 = st.columns(3)

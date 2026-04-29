@@ -477,7 +477,7 @@ def _engine_queue_status(game_id: str, engine: str) -> str | None:
                 and_(
                     AnalysisJob.game_id == game_id,
                     AnalysisJob.engine == engine,
-                    AnalysisJob.status.in_(["pending", "running"]),
+                    AnalysisJob.status.in_(["pending", "submitted", "running"]),
                 )
             )
             .order_by(AnalysisJob.created_at.desc())
@@ -688,7 +688,7 @@ if white_accuracy is not None and black_accuracy is not None:
         derived=accuracy_is_derived,
     ))
 
-# ── Queue buttons ─────────────────────────────────────────────────────────────
+# ── Analysis state flags (used here and in Admin section below) ───────────────
 missing_lc0 = not lc0_ready
 missing_sf = white_accuracy is None and black_accuracy is None
 
@@ -698,102 +698,11 @@ has_sf = not missing_sf
 if missing_lc0 or missing_sf:
     st.markdown("---")
     if missing_lc0 and missing_sf:
-        st.info("No engine analysis yet for this game.")
-
-    lc0_queue_status = _engine_queue_status(game_id, "lc0") if missing_lc0 else None
-    sf_queue_status = _engine_queue_status(game_id, "stockfish") if missing_sf else None
-
-    btn_col_lc0, btn_col_sf = st.columns(2)
-    if missing_lc0:
-        with btn_col_lc0:
-            if lc0_queue_status:
-                st.caption(f"Queue status: {lc0_queue_status.title()}")
-            if st.button(
-                "Queue Lc0 Analysis",
-                disabled=lc0_queue_status is not None,
-                help=(
-                    f"Lc0 analysis is already {lc0_queue_status}."
-                    if lc0_queue_status
-                    else "Add to Lc0 analysis queue (LC0_PATH is only required when running the worker)"
-                ),
-            ):
-                queued = enqueue_game(game_id, engine="lc0", depth=_settings.lc0_nodes)
-                if queued:
-                    _set_queue_flash("success", "Queued for Lc0 analysis. Start the worker to process it.")
-                else:
-                    _set_queue_flash("info", "Already in the Lc0 queue.")
-                st.rerun()
-    if missing_sf:
-        with btn_col_sf:
-            if sf_queue_status:
-                st.caption(f"Queue status: {sf_queue_status.title()}")
-            if st.button(
-                "Queue Stockfish Analysis",
-                disabled=sf_queue_status is not None,
-                help=(
-                    f"Stockfish analysis is already {sf_queue_status}."
-                    if sf_queue_status
-                    else "Add to Stockfish analysis queue"
-                ),
-            ):
-                queued = enqueue_game(game_id, engine="stockfish", depth=_settings.analysis_depth)
-                if queued:
-                    _set_queue_flash("success", "Queued for Stockfish analysis. Start the worker to process it.")
-                else:
-                    _set_queue_flash("info", "Already in the Stockfish queue.")
-                st.rerun()
-
-# ── Reanalysis buttons ───────────────────────────────────────────────────────
-if has_lc0 or has_sf:
-    st.markdown("---")
-    st.caption("Queue reanalysis to refresh engine output. The latest run replaces prior analysis data for that engine.")
-
-    lc0_requeue_status = _engine_queue_status(game_id, "lc0") if has_lc0 else None
-    sf_requeue_status = _engine_queue_status(game_id, "stockfish") if has_sf else None
-
-    re_col_lc0, re_col_sf = st.columns(2)
-
-    if has_lc0:
-        with re_col_lc0:
-            if lc0_requeue_status:
-                st.caption(f"Queue status: {lc0_requeue_status.title()}")
-            if st.button(
-                "Reanalyze with Lc0",
-                key="requeue_lc0",
-                disabled=lc0_requeue_status is not None,
-                help=(
-                    f"Lc0 analysis is already {lc0_requeue_status}."
-                    if lc0_requeue_status
-                    else "Queue a fresh Lc0 run for this game. New results overwrite previous Lc0 analysis."
-                ),
-            ):
-                queued = enqueue_game(game_id, engine="lc0", depth=_settings.lc0_nodes)
-                if queued:
-                    _set_queue_flash("success", "Queued Lc0 reanalysis. New Lc0 output will replace the current analysis.")
-                else:
-                    _set_queue_flash("info", "Lc0 is already queued for this game.")
-                st.rerun()
-
-    if has_sf:
-        with re_col_sf:
-            if sf_requeue_status:
-                st.caption(f"Queue status: {sf_requeue_status.title()}")
-            if st.button(
-                "Reanalyze with Stockfish",
-                key="requeue_stockfish",
-                disabled=sf_requeue_status is not None,
-                help=(
-                    f"Stockfish analysis is already {sf_requeue_status}."
-                    if sf_requeue_status
-                    else "Queue a fresh Stockfish run for this game. New results overwrite previous Stockfish analysis."
-                ),
-            ):
-                queued = enqueue_game(game_id, engine="stockfish", depth=_settings.analysis_depth)
-                if queued:
-                    _set_queue_flash("success", "Queued Stockfish reanalysis. New Stockfish output will replace the current analysis.")
-                else:
-                    _set_queue_flash("info", "Stockfish is already queued for this game.")
-                st.rerun()
+        st.info("No engine analysis yet for this game. Scroll to the Admin section at the bottom to queue analysis.")
+    elif missing_lc0:
+        st.info("Lc0 analysis is not yet available for this game. Scroll to the Admin section to queue it.")
+    else:
+        st.info("Stockfish analysis is not yet available for this game. Scroll to the Admin section to queue it.")
 
 # ── Board viewer ──────────────────────────────────────────────────────────────
 st.markdown("---")
@@ -845,7 +754,7 @@ if _has_sf or _has_lc0:
     </style>
     <div class="arrow-legend">
       <span><span class="swatch" style="background:linear-gradient(90deg,#D4A843CC,#D4A84777,#D4A84733)"></span>Stockfish: best · better · good</span>
-      <span><span class="swatch" style="background:linear-gradient(90deg,#8B3A2ACC,#8B3A2A77,#8B3A2A33)"></span>Lc0: best · better</span>
+      <span><span class="swatch" style="background:linear-gradient(90deg,#4A6E8ACC,#4A6E8A77,#4A6E8A33)"></span>Lc0: best · better</span>
     </div>""")
     _chk_col1, _chk_col2, *_ = st.columns([1, 1, 3])
     with _chk_col1:
@@ -880,3 +789,90 @@ render_svg_game_viewer(
     sf_arrow_tiers=board_sf_tiers,
     lc0_arrow_tiers=board_lc0_tiers,
 )
+
+# ── Admin ─────────────────────────────────────────────────────────────────────
+st.markdown("---")
+with st.expander("Admin", expanded=False):
+    st.warning(
+        "⚠️ Running engine analysis costs real money and has a real environmental impact. "
+        "Only queue games when necessary.",
+        icon="⚠️",
+    )
+
+    lc0_queue_status = _engine_queue_status(game_id, "lc0") if missing_lc0 else None
+    sf_queue_status = _engine_queue_status(game_id, "stockfish") if missing_sf else None
+    lc0_requeue_status = _engine_queue_status(game_id, "lc0") if has_lc0 else None
+    sf_requeue_status = _engine_queue_status(game_id, "stockfish") if has_sf else None
+
+    show_lc0_queue = missing_lc0 and lc0_queue_status is None
+    show_sf_queue = missing_sf and sf_queue_status is None
+    show_lc0_reanalyze = has_lc0 and lc0_requeue_status is None
+    show_sf_reanalyze = has_sf and sf_requeue_status is None
+
+    any_queue = show_lc0_queue or show_sf_queue
+    any_reanalyze = show_lc0_reanalyze or show_sf_reanalyze
+
+    if any_queue:
+        st.markdown("**Queue analysis**")
+        q_col_lc0, q_col_sf = st.columns(2)
+        if show_lc0_queue:
+            with q_col_lc0:
+                if st.button(
+                    "Queue Lc0 Analysis",
+                    help="Add to Lc0 analysis queue (LC0_PATH is only required when running the worker)",
+                ):
+                    queued = enqueue_game(game_id, engine="lc0", depth=_settings.lc0_nodes)
+                    if queued:
+                        _set_queue_flash("success", "Queued for Lc0 analysis. Start the worker to process it.")
+                    else:
+                        _set_queue_flash("info", "Already in the Lc0 queue.")
+                    st.rerun()
+        if show_sf_queue:
+            with q_col_sf:
+                if st.button(
+                    "Queue Stockfish Analysis",
+                    help="Add to Stockfish analysis queue",
+                ):
+                    queued = enqueue_game(game_id, engine="stockfish", depth=_settings.analysis_depth)
+                    if queued:
+                        _set_queue_flash("success", "Queued for Stockfish analysis. Start the worker to process it.")
+                    else:
+                        _set_queue_flash("info", "Already in the Stockfish queue.")
+                    st.rerun()
+
+    if any_queue and any_reanalyze:
+        st.markdown("---")
+
+    if any_reanalyze:
+        st.markdown("**Reanalyze**")
+        st.caption("Queuing reanalysis will overwrite all prior engine output for this game.")
+        re_col_lc0, re_col_sf = st.columns(2)
+        if show_lc0_reanalyze:
+            with re_col_lc0:
+                if st.button(
+                    "Reanalyze with Lc0",
+                    key="requeue_lc0",
+                    help="Queue a fresh Lc0 run. New results overwrite previous Lc0 analysis.",
+                ):
+                    queued = enqueue_game(game_id, engine="lc0", depth=_settings.lc0_nodes)
+                    if queued:
+                        _set_queue_flash("success", "Queued Lc0 reanalysis. New output will replace the current analysis.")
+                    else:
+                        _set_queue_flash("info", "Lc0 is already queued for this game.")
+                    st.rerun()
+        if show_sf_reanalyze:
+            with re_col_sf:
+                if st.button(
+                    "Reanalyze with Stockfish",
+                    key="requeue_stockfish",
+                    help="Queue a fresh Stockfish run. New results overwrite previous Stockfish analysis.",
+                ):
+                    queued = enqueue_game(game_id, engine="stockfish", depth=_settings.analysis_depth)
+                    if queued:
+                        _set_queue_flash("success", "Queued Stockfish reanalysis. New output will replace the current analysis.")
+                    else:
+                        _set_queue_flash("info", "Stockfish is already queued for this game.")
+                    st.rerun()
+
+    if not any_queue and not any_reanalyze:
+        st.info("Analysis is currently in progress for this game. Buttons will appear here once the queue is clear.")

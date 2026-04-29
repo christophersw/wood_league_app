@@ -160,14 +160,14 @@ class OpeningPositionService:
                     seen_game_epd[gid] = False
                     return False
                 board = game.board()
-                node = game
-                for _ in range(ply_depth):
-                    if not node.variations:
-                        seen_game_epd[gid] = False
-                        return False
-                    node = node.variations[0]
-                    board.push(node.move)
-                result = board.ply() == ply_depth and board.epd() == target_epd
+                result = False
+                for move in game.mainline_moves():
+                    board.push(move)
+                    if board.epd() == target_epd:
+                        result = True
+                        break
+                    if board.ply() > ply_depth:
+                        break
             except Exception:
                 result = False
             seen_game_epd[gid] = result

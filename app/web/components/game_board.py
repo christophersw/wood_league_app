@@ -15,15 +15,15 @@ from app.web.components.html_embed import render_html_iframe
 # ── Du Bois palette board colors ─────────────────────────────────────────────
 _BOARD_COLORS = {
     "square light": "#F2E6D0",   # Parchment
-    "square dark":  "#1A3A2A",   # Forest
+    "square dark":  "#4A8C62",   # Medium green (matches opening preview)
     "margin":       "#1A1A1A",   # Ebony
     "coord":        "#D4A843",   # Whisky
 }
 
 # Per-engine tiered arrow colors: best / better / good
-# Stockfish: whisky amber scale; Lc0: terracotta scale
+# Stockfish: whisky amber; Lc0: steel blue (both already in the Du Bois palette)
 _SF_ARROW_COLORS  = ["#D4A843CC", "#D4A84377", "#D4A84333"]
-_LC0_ARROW_COLORS = ["#8B3A2ACC", "#8B3A2A77", "#8B3A2A33"]
+_LC0_ARROW_COLORS = ["#4A6E8ACC", "#4A6E8A77", "#4A6E8A33"]
 
 def _apply_custom_pieces(svg: str) -> str:
     """Return python-chess native SVG pieces without overriding defs."""
@@ -104,7 +104,8 @@ def render_svg_game_viewer(
         def _add_arrows(tier_map: "dict[int, list[str]] | None", colors: list[str]) -> None:
             if tier_map is None:
                 return
-            for i, uci in enumerate(tier_map.get(ply_i, [])):
+            # Tier maps store absolute plies; ply_i is relative to the first displayed move
+            for i, uci in enumerate(tier_map.get(ply_i + start_ply_offset, [])):
                 if uci and len(uci) >= 4 and i < len(colors):
                     try:
                         arrows.append(chess.svg.Arrow(
@@ -116,7 +117,8 @@ def render_svg_game_viewer(
                         pass
 
         # Track best-move match for eval chart highlighting (use SF tier-1 when available)
-        _sf_best = (sf_arrow_tiers or {}).get(ply_i, [""])[0] if sf_arrow_tiers else arrow_map.get(ply_i, "")
+        # Tier maps use absolute plies; arrow_map uses relative plies (already normalised above)
+        _sf_best = (sf_arrow_tiers or {}).get(ply_i + start_ply_offset, [""])[0] if sf_arrow_tiers else arrow_map.get(ply_i, "")
         if _sf_best:
             is_best_map[ply_i] = move.uci() == _sf_best
 
