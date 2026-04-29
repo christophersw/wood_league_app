@@ -20,8 +20,10 @@ _BOARD_COLORS = {
     "coord":        "#D4A843",   # Whisky
 }
 
-# Best-move arrow: whisky amber at 55% alpha
-_ARROW_COLOR = "#D4A84388"
+# Per-engine tiered arrow colors: best / better / good
+# Stockfish: whisky amber scale; Lc0: terracotta scale
+_SF_ARROW_COLORS  = ["#D4A843CC", "#D4A84377", "#D4A84333"]
+_LC0_ARROW_COLORS = ["#8B3A2ACC", "#8B3A2A77", "#8B3A2A33"]
 
 def _apply_custom_pieces(svg: str) -> str:
     """Return python-chess native SVG pieces without overriding defs."""
@@ -39,6 +41,8 @@ def render_svg_game_viewer(
     wdl_data: list[dict] | None = None,
     white_player: str = "White",
     black_player: str = "Black",
+    sf_arrow_tiers: "dict[int, list[str]] | None" = None,
+    lc0_arrow_tiers: "dict[int, list[str]] | None" = None,
 ) -> None:
     """Full-game SVG viewer with play/pause, scrubber, move list, and best-move arrows.
 
@@ -96,15 +100,42 @@ def render_svg_game_viewer(
         board.push(move)
         # Best-move arrow for this ply
         arrows: list[chess.svg.Arrow] = []
-        uci_str = arrow_map.get(ply_i, "")
-        if uci_str and len(uci_str) >= 4:
-            is_best_map[ply_i] = move.uci() == uci_str
-            try:
-                from_sq = chess.parse_square(uci_str[:2])
-                to_sq = chess.parse_square(uci_str[2:4])
-                arrows.append(chess.svg.Arrow(from_sq, to_sq, color=_ARROW_COLOR))
-            except ValueError:
-                pass
+
+        def _add_arrows(tier_map: "dict[int, list[str]] | None", colors: list[str]) -> None:
+            if tier_map is None:
+                return
+            for i, uci in enumerate(tier_map.get(ply_i, [])):
+                if uci and len(uci) >= 4 and i < len(colors):
+                    try:
+                        arrows.append(chess.svg.Arrow(
+                            chess.parse_square(uci[:2]),
+                            chess.parse_square(uci[2:4]),
+                            color=colors[i],
+                        ))
+                    except ValueError:
+                        pass
+
+        # Track best-move match for eval chart highlighting (use SF tier-1 when available)
+        _sf_best = (sf_arrow_tiers or {}).get(ply_i, [""])[0] if sf_arrow_tiers else arrow_map.get(ply_i, "")
+        if _sf_best:
+            is_best_map[ply_i] = move.uci() == _sf_best
+
+        if sf_arrow_tiers is not None:
+            _add_arrows(sf_arrow_tiers, _SF_ARROW_COLORS)
+        else:
+            # Fallback: use moves_df arrow_uci as a single-tier SF arrow
+            uci_str = arrow_map.get(ply_i, "")
+            if uci_str and len(uci_str) >= 4:
+                try:
+                    arrows.append(chess.svg.Arrow(
+                        chess.parse_square(uci_str[:2]),
+                        chess.parse_square(uci_str[2:4]),
+                        color=_SF_ARROW_COLORS[0],
+                    ))
+                except ValueError:
+                    pass
+
+        _add_arrows(lc0_arrow_tiers, _LC0_ARROW_COLORS)
 
         frames.append(
             _apply_custom_pieces(

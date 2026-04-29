@@ -226,6 +226,7 @@ def _lc0_moves_from_db(move_rows: list["Lc0MoveAnalysis"]) -> pd.DataFrame:
             "cp_equiv": m.cp_equiv,
             "best_move": m.best_move,
             "arrow_uci": m.arrow_uci,
+            "arrow_uci_2": m.arrow_uci_2 or "",
             "move_win_delta": m.move_win_delta,
             "classification": m.classification,
         }
@@ -244,6 +245,8 @@ def _moves_from_db(move_rows: list[MoveAnalysis]) -> pd.DataFrame:
             "cp_eval": m.cp_eval,
             "best_move": m.best_move,
             "arrow_uci": m.arrow_uci,
+            "arrow_uci_2": m.arrow_uci_2 or "",
+            "arrow_uci_3": m.arrow_uci_3 or "",
             "cpl": m.cpl,
             "classification": m.classification,
         }

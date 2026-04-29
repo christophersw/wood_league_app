@@ -692,6 +692,9 @@ if white_accuracy is not None and black_accuracy is not None:
 missing_lc0 = not lc0_ready
 missing_sf = white_accuracy is None and black_accuracy is None
 
+has_lc0 = not missing_lc0
+has_sf = not missing_sf
+
 if missing_lc0 or missing_sf:
     st.markdown("---")
     if missing_lc0 and missing_sf:
@@ -740,21 +743,118 @@ if missing_lc0 or missing_sf:
                     _set_queue_flash("info", "Already in the Stockfish queue.")
                 st.rerun()
 
+# ── Reanalysis buttons ───────────────────────────────────────────────────────
+if has_lc0 or has_sf:
+    st.markdown("---")
+    st.caption("Queue reanalysis to refresh engine output. The latest run replaces prior analysis data for that engine.")
+
+    lc0_requeue_status = _engine_queue_status(game_id, "lc0") if has_lc0 else None
+    sf_requeue_status = _engine_queue_status(game_id, "stockfish") if has_sf else None
+
+    re_col_lc0, re_col_sf = st.columns(2)
+
+    if has_lc0:
+        with re_col_lc0:
+            if lc0_requeue_status:
+                st.caption(f"Queue status: {lc0_requeue_status.title()}")
+            if st.button(
+                "Reanalyze with Lc0",
+                key="requeue_lc0",
+                disabled=lc0_requeue_status is not None,
+                help=(
+                    f"Lc0 analysis is already {lc0_requeue_status}."
+                    if lc0_requeue_status
+                    else "Queue a fresh Lc0 run for this game. New results overwrite previous Lc0 analysis."
+                ),
+            ):
+                queued = enqueue_game(game_id, engine="lc0", depth=_settings.lc0_nodes)
+                if queued:
+                    _set_queue_flash("success", "Queued Lc0 reanalysis. New Lc0 output will replace the current analysis.")
+                else:
+                    _set_queue_flash("info", "Lc0 is already queued for this game.")
+                st.rerun()
+
+    if has_sf:
+        with re_col_sf:
+            if sf_requeue_status:
+                st.caption(f"Queue status: {sf_requeue_status.title()}")
+            if st.button(
+                "Reanalyze with Stockfish",
+                key="requeue_stockfish",
+                disabled=sf_requeue_status is not None,
+                help=(
+                    f"Stockfish analysis is already {sf_requeue_status}."
+                    if sf_requeue_status
+                    else "Queue a fresh Stockfish run for this game. New results overwrite previous Stockfish analysis."
+                ),
+            ):
+                queued = enqueue_game(game_id, engine="stockfish", depth=_settings.analysis_depth)
+                if queued:
+                    _set_queue_flash("success", "Queued Stockfish reanalysis. New Stockfish output will replace the current analysis.")
+                else:
+                    _set_queue_flash("info", "Stockfish is already queued for this game.")
+                st.rerun()
+
 # ── Board viewer ──────────────────────────────────────────────────────────────
 st.markdown("---")
 
-# Use Lc0 arrows when available, otherwise fall back to Stockfish arrows
-moves_df = analysis.moves.copy()
-if lc0_ready and "arrow_uci" in analysis.lc0_moves.columns:
-    lc0_arrow_map = {
-        int(r["ply"]): str(r["arrow_uci"])
-        for _, r in analysis.lc0_moves.iterrows()
-        if r.get("arrow_uci")
-    }
-    if lc0_arrow_map:
-        moves_df["arrow_uci"] = moves_df["ply"].map(lc0_arrow_map).fillna(
-            moves_df["arrow_uci"] if "arrow_uci" in moves_df.columns else ""
-        )
+# Build per-engine tiered arrow maps: {ply: [best_uci, better_uci, good_uci]}
+def _build_sf_tiers(df) -> "dict[int, list[str]]":
+    tiers: dict[int, list[str]] = {}
+    for _, r in df.iterrows():
+        tier = [
+            str(r.get("arrow_uci", "") or ""),
+            str(r.get("arrow_uci_2", "") or ""),
+            str(r.get("arrow_uci_3", "") or ""),
+        ]
+        if any(tier):
+            tiers[int(r["ply"])] = tier
+    return tiers
+
+def _build_lc0_tiers(df) -> "dict[int, list[str]]":
+    tiers: dict[int, list[str]] = {}
+    for _, r in df.iterrows():
+        tier = [
+            str(r.get("arrow_uci", "") or ""),
+            str(r.get("arrow_uci_2", "") or ""),
+        ]
+        if any(tier):
+            tiers[int(r["ply"])] = tier
+    return tiers
+
+_sf_tiers = _build_sf_tiers(analysis.moves) if not analysis.moves.empty else {}
+_lc0_tiers = (
+    _build_lc0_tiers(analysis.lc0_moves)
+    if lc0_ready and analysis.lc0_moves is not None and not analysis.lc0_moves.empty
+    else {}
+)
+
+_has_sf  = bool(_sf_tiers)
+_has_lc0 = bool(_lc0_tiers)
+
+# Per-engine on/off toggles (only show checkboxes for engines that have data)
+_show_sf  = False
+_show_lc0 = False
+if _has_sf or _has_lc0:
+    st.html("""<style>
+      .arrow-legend{display:flex;gap:18px;align-items:center;
+        font-family:'DM Mono',monospace;font-size:0.62rem;
+        letter-spacing:0.07em;text-transform:uppercase;margin-top:2px}
+      .arrow-legend .swatch{display:inline-block;width:28px;height:5px;
+        border-radius:2px;margin-right:4px;vertical-align:middle}
+    </style>
+    <div class="arrow-legend">
+      <span><span class="swatch" style="background:linear-gradient(90deg,#D4A843CC,#D4A84777,#D4A84733)"></span>Stockfish: best · better · good</span>
+      <span><span class="swatch" style="background:linear-gradient(90deg,#8B3A2ACC,#8B3A2A77,#8B3A2A33)"></span>Lc0: best · better</span>
+    </div>""")
+    _chk_col1, _chk_col2, *_ = st.columns([1, 1, 3])
+    with _chk_col1:
+        _show_sf  = st.checkbox("Stockfish arrows", value=_has_sf,  disabled=not _has_sf)
+    with _chk_col2:
+        _show_lc0 = st.checkbox("Lc0 arrows",       value=_has_lc0, disabled=not _has_lc0)
+
+board_sf_tiers  = _sf_tiers  if _show_sf  else None
+board_lc0_tiers = _lc0_tiers if _show_lc0 else None
 
 # Build chart data — pass both when available; board renders them as stacked charts
 wdl_data = None
@@ -769,7 +869,7 @@ if "cp_eval" in analysis.moves.columns and analysis.moves["cp_eval"].notna().any
 
 render_svg_game_viewer(
     analysis.pgn,
-    moves_df=moves_df,
+    moves_df=analysis.moves,
     size=560,
     orientation="white",
     initial_ply="last",
@@ -777,4 +877,6 @@ render_svg_game_viewer(
     eval_data=eval_data,
     white_player=white_label,
     black_player=black_label,
+    sf_arrow_tiers=board_sf_tiers,
+    lc0_arrow_tiers=board_lc0_tiers,
 )

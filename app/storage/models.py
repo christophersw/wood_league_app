@@ -110,6 +110,8 @@ class MoveAnalysis(Base):
     cpl: Mapped[float | None] = mapped_column(Float, nullable=True)
     best_move: Mapped[str] = mapped_column(String(32), default="")
     arrow_uci: Mapped[str] = mapped_column(String(8), default="")
+    arrow_uci_2: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    arrow_uci_3: Mapped[str | None] = mapped_column(String(8), nullable=True)
     classification: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     analysis: Mapped[GameAnalysis] = relationship(back_populates="moves")
@@ -202,6 +204,7 @@ class Lc0MoveAnalysis(Base):
     cp_equiv: Mapped[float | None] = mapped_column(Float, nullable=True)
     best_move: Mapped[str] = mapped_column(String(32), default="")
     arrow_uci: Mapped[str] = mapped_column(String(8), default="")
+    arrow_uci_2: Mapped[str | None] = mapped_column(String(8), nullable=True)
     move_win_delta: Mapped[float | None] = mapped_column(Float, nullable=True)
     classification: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
