@@ -542,6 +542,112 @@ On first startup with auth enabled, the admin account is created automatically i
 
 ---
 
+## Security Scanning
+
+This project uses [Snyk](https://snyk.io) for dependency vulnerability scanning and static code analysis. Install the CLI once via Homebrew:
+
+```bash
+brew tap snyk/tap && brew install snyk-cli
+snyk auth   # opens browser to authenticate
+```
+
+### Workflow summary
+
+| When | Tool | Scope | Speed |
+|---|---|---|---|
+| After each file edit (agent) | `bandit -ll <file>` | Edited file only | ~instant |
+| Before every commit (git hook) | `snyk code test` | Whole repo | ~30–60s |
+| On demand / CI | `./security-scan.sh` | All four repos | ~5 min |
+
+### Pre-commit hook setup
+
+Run once after cloning to install the `snyk code test` hook in all four repos:
+
+```bash
+./install-hooks.sh
+```
+
+The hook blocks commits if any Medium or High code issues are found. To bypass for a single commit:
+
+```bash
+git commit --no-verify
+```
+
+### Agent instructions (`CLAUDE.md`)
+
+The `CLAUDE.md` in this repo root instructs AI agents (Claude Code, Zed, etc.) to run `bandit -ll <file>` after editing any `.py` file, and to fix any Medium/High findings before handing back. Install `bandit` once:
+
+```bash
+pip3 install bandit
+```
+
+### Running all scans manually
+
+`security-scan.sh` runs dep, code, and container scans across all four repos:
+
+```bash
+./security-scan.sh          # standard (skips slow CUDA container pull)
+./security-scan.sh --full   # includes nvidia/cuda container scan
+```
+
+The individual scan commands are documented below for reference.
+
+### Dependency scan (open-source vulnerabilities)
+
+Snyk's pip scanner requires a virtual environment with the dependencies installed. Run from each repo root:
+
+```bash
+# wood_league_app (requirements.txt)
+python3 -m venv .snyk-venv && .snyk-venv/bin/pip install -r requirements.txt
+snyk test --file=requirements.txt --package-manager=pip --command=.snyk-venv/bin/python
+
+# wood_league_stockfish_runpod (requirements.txt)
+python3 -m venv .snyk-venv && .snyk-venv/bin/pip install -r requirements.txt
+snyk test --file=requirements.txt --package-manager=pip --command=.snyk-venv/bin/python
+
+# wood_league_dispatchers and wood_league_lc0_runpod (pyproject.toml — use pip freeze workaround)
+python3 -m venv .snyk-venv && .snyk-venv/bin/pip install -e . && .snyk-venv/bin/pip freeze > .snyk-requirements.txt
+snyk test --file=.snyk-requirements.txt --package-manager=pip --command=.snyk-venv/bin/python
+```
+
+### Static code analysis
+
+Run from each repo root — no venv needed:
+
+```bash
+snyk code test
+```
+
+### Container scan (base image OS CVEs)
+
+Scans OS packages in the Docker base image without needing to build it locally. Run from each repo that has a Dockerfile:
+
+```bash
+# Stockfish and Dispatchers (python:3.11-slim base)
+snyk container test python:3.11-slim --file=Dockerfile
+
+# Lc0 (CUDA base — slow, pulls a large image)
+snyk container test nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04 --file=Dockerfile
+```
+
+All findings from the `python:3.11-slim` base are **Low severity** OS-level CVEs (glibc, systemd, ncurses, etc.) with no fix available short of a base image rebuild. These are ambient Debian issues, not application vulnerabilities. Re-run periodically to catch if anything escalates to Medium/High.
+
+> **Note:** `snyk iac test` does not apply here — it supports Terraform/Helm/Kubernetes YAML only, not Dockerfiles or TOML configs.
+
+### Known findings (as of last scan)
+
+| Repo | Type | Severity | Location | Notes |
+|---|---|---|---|---|
+| `wood_league_app` | Code | Medium | `app/web/pages/game_search.py:315` | SQL injection — unsanitized input into `sqlalchemy.text` |
+| `wood_league_app` | Code | Low | `app/ingest/sync_service.py:196` | `hashlib.sha1` — weak hash |
+| `wood_league_stockfish_runpod` | Code | Low | `stockfish_pipeline/ingest/sync_service.py:191` | `hashlib.sha1` — weak hash |
+| `wood_league_dispatchers` | Code | Low | `dispatchers/ingest/sync_service.py:190` | `hashlib.sha1` — weak hash |
+| `wood_league_lc0_runpod` | Code | — | — | ✅ Clean |
+
+All four repos have **no dependency vulnerabilities**.
+
+---
+
 ## Deploy to Railway
 
 1. Push this repo to GitHub.

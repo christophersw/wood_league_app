@@ -11,12 +11,11 @@ import requests
 from sqlalchemy import or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.config import get_settings
 from app.services.history_service import HistoryFilters, HistoryService
 from app.services.opening_labels import opening_display_label
-from app.config import get_settings
 from app.storage.database import get_session, init_db
 from app.storage.models import Game, GameAnalysis, GameParticipant, Player
-
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 DEFAULT_ANTHROPIC_MODEL = "claude-3-haiku-20240307"
@@ -337,9 +336,19 @@ def _sanitize_sql(candidate_sql: str) -> str:
     if ";" in sql:
         raise ValueError("Only one SQL statement is allowed.")
 
+    # Disallow inline/block comments to prevent hidden payloads.
+    if "--" in sql or "/*" in sql or "*/" in sql:
+        raise ValueError("SQL comments are not allowed.")
+
     lowered = sql.lower()
     if not lowered.startswith("select"):
         raise ValueError("Only SELECT is allowed.")
+
+    # CTEs and INTO can mask multi-step behavior. Keep generated SQL simple.
+    if re.search(r"^\s*with\b", lowered):
+        raise ValueError("WITH queries are not allowed.")
+    if re.search(r"\binto\b", lowered):
+        raise ValueError("SELECT ... INTO is not allowed.")
 
     blocked_terms = [
         "insert",
@@ -361,6 +370,12 @@ def _sanitize_sql(candidate_sql: str) -> str:
     if re.search(r"\b(union|intersect|except)\b", lowered):
         raise ValueError("UNION/INTERSECT/EXCEPT are not allowed.")
 
+    # Block references to database/system catalogs.
+    if re.search(r"\b(pg_catalog|information_schema)\b", lowered):
+        raise ValueError("System catalog access is not allowed.")
+    if re.search(r"\bpg_[a-z0-9_]+\b", lowered):
+        raise ValueError("Postgres system functions are not allowed.")
+
     allowed_tables = {
         "games",
         "game_analysis",
@@ -377,13 +392,17 @@ def _sanitize_sql(candidate_sql: str) -> str:
 
     disallowed = sorted({t for t in table_refs if t not in allowed_tables})
     if disallowed:
-        raise ValueError(f"Query references disallowed table(s): {', '.join(disallowed)}")
+        raise ValueError(
+            f"Query references disallowed table(s): {', '.join(disallowed)}"
+        )
 
     limit_match = re.search(r"\blimit\s+(\d+)\b", sql, flags=re.IGNORECASE)
     if limit_match:
         n = int(limit_match.group(1))
         if n > MAX_RESULTS:
-            sql = re.sub(r"\blimit\s+\d+\b", f"LIMIT {MAX_RESULTS}", sql, flags=re.IGNORECASE)
+            sql = re.sub(
+                r"\blimit\s+\d+\b", f"LIMIT {MAX_RESULTS}", sql, flags=re.IGNORECASE
+            )
     else:
         sql = f"{sql} LIMIT {MAX_RESULTS}"
 
@@ -450,7 +469,9 @@ def generate_search_plan(user_query: str) -> SearchPlan:
         timeout=45,
     )
     if not response.ok:
-        raise SearchPlanError(f"Anthropic API error {response.status_code}: {response.text[:500]}")
+        raise SearchPlanError(
+            f"Anthropic API error {response.status_code}: {response.text[:500]}"
+        )
 
     raw_text = _extract_text(response.json())
     if not raw_text:
@@ -459,7 +480,9 @@ def generate_search_plan(user_query: str) -> SearchPlan:
     try:
         parsed = _extract_json(raw_text)
     except Exception as exc:
-        raise SearchPlanError("Claude did not return valid JSON.", raw_response=raw_text) from exc
+        raise SearchPlanError(
+            "Claude did not return valid JSON.", raw_response=raw_text
+        ) from exc
 
     reasoning = str(parsed.get("reasoning", "")).strip()
     candidate_sql = str(parsed.get("sql_query", "")).strip()
@@ -486,9 +509,11 @@ def generate_search_plan(user_query: str) -> SearchPlan:
 
 def execute_sql_search(sql_query: str) -> list[dict[str, Any]]:
     init_db()
+    # Validate at sink as a defense-in-depth control before executing raw text.
+    safe_sql = _sanitize_sql(sql_query)
     with get_session() as session:
         try:
-            result = session.execute(text(sql_query))
+            result = session.execute(text(safe_sql))
             return [dict(row) for row in result.mappings().all()]
         except SQLAlchemyError as exc:
             raise ValueError(f"Generated SQL failed to execute: {exc}") from exc
