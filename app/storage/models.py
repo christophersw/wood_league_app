@@ -142,6 +142,10 @@ class MoveAnalysis(Base):
     arrow_uci: Mapped[str] = mapped_column(String(8), default="")
     arrow_uci_2: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     arrow_uci_3: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    # Candidate eval scores (mover perspective, centipawns) for arrow tiers 1-3.
+    arrow_score_1: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    arrow_score_2: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    arrow_score_3: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     classification: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
 
     analysis: Mapped[GameAnalysis] = relationship(back_populates="moves")
@@ -241,6 +245,11 @@ class Lc0MoveAnalysis(Base):
     best_move: Mapped[str] = mapped_column(String(32), default="")
     arrow_uci: Mapped[str] = mapped_column(String(8), default="")
     arrow_uci_2: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    arrow_uci_3: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    # Candidate eval scores (mover perspective, centipawns equivalent) for arrow tiers 1-3.
+    arrow_score_1: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    arrow_score_2: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    arrow_score_3: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     move_win_delta: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     classification: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
 

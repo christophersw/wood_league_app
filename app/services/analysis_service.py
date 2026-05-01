@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import io
+from dataclasses import dataclass
 
 import chess.pgn
 import pandas as pd
@@ -9,7 +9,13 @@ from sqlalchemy import select
 
 from app.services.opening_book import matched_opening_from_pgn
 from app.storage.database import get_session, init_db
-from app.storage.models import Game, GameAnalysis, MoveAnalysis, Lc0GameAnalysis, Lc0MoveAnalysis
+from app.storage.models import (
+    Game,
+    GameAnalysis,
+    Lc0GameAnalysis,
+    Lc0MoveAnalysis,
+    MoveAnalysis,
+)
 
 
 @dataclass
@@ -119,9 +125,14 @@ class AnalysisService:
                 moves_df = _moves_from_db(ga.moves)
                 return GameAnalysisData(
                     game_id=game_id,
-                    white=white, black=black, result=result,
-                    pgn=pgn_text, moves=moves_df,
-                    date=date, time_control=time_control, url=url,
+                    white=white,
+                    black=black,
+                    result=result,
+                    pgn=pgn_text,
+                    moves=moves_df,
+                    date=date,
+                    time_control=time_control,
+                    url=url,
                     white_accuracy=ga.white_accuracy,
                     black_accuracy=ga.black_accuracy,
                     white_acpl=ga.white_acpl,
@@ -155,23 +166,31 @@ class AnalysisService:
             san = board.san(move)
             board.push(move)
             lm = lc0_by_ply.get(ply)
-            rows.append({
-                "ply": ply,
-                "san": san,
-                "fen": board.fen(),
-                "cp_eval": float(lm["cp_equiv"]) if lm is not None else None,
-                "best_move": str(lm["best_move"]) if lm is not None else "",
-                "arrow_uci": str(lm["arrow_uci"]) if lm is not None else "",
-                "cpl": None,
-                "classification": str(lm["classification"]) if lm is not None else None,
-            })
+            rows.append(
+                {
+                    "ply": ply,
+                    "san": san,
+                    "fen": board.fen(),
+                    "cp_eval": float(lm["cp_equiv"]) if lm is not None else None,
+                    "best_move": str(lm["best_move"]) if lm is not None else "",
+                    "arrow_uci": str(lm["arrow_uci"]) if lm is not None else "",
+                    "cpl": None,
+                    "classification": str(lm["classification"])
+                    if lm is not None
+                    else None,
+                }
+            )
 
         return GameAnalysisData(
             game_id=game_id,
-            white=white, black=black, result=result,
+            white=white,
+            black=black,
+            result=result,
             pgn=pgn_text,
             moves=pd.DataFrame(rows),
-            date=date, time_control=time_control, url=url,
+            date=date,
+            time_control=time_control,
+            url=url,
             white_rating=db_game.white_rating,
             black_rating=db_game.black_rating,
             lc0_moves=lc0_moves_df,
@@ -187,13 +206,20 @@ def _lc0_summary_kwargs(lga: "Lc0GameAnalysis | None") -> dict:
     """Extract scalar Lc0 summary fields for GameAnalysisData kwargs."""
     if lga is None:
         return {
-            "lc0_white_win_prob": None, "lc0_white_draw_prob": None,
-            "lc0_white_loss_prob": None, "lc0_black_win_prob": None,
-            "lc0_black_draw_prob": None, "lc0_black_loss_prob": None,
-            "lc0_white_blunders": None, "lc0_white_mistakes": None,
-            "lc0_white_inaccuracies": None, "lc0_black_blunders": None,
-            "lc0_black_mistakes": None, "lc0_black_inaccuracies": None,
-            "lc0_engine_nodes": None, "lc0_network_name": None,
+            "lc0_white_win_prob": None,
+            "lc0_white_draw_prob": None,
+            "lc0_white_loss_prob": None,
+            "lc0_black_win_prob": None,
+            "lc0_black_draw_prob": None,
+            "lc0_black_loss_prob": None,
+            "lc0_white_blunders": None,
+            "lc0_white_mistakes": None,
+            "lc0_white_inaccuracies": None,
+            "lc0_black_blunders": None,
+            "lc0_black_mistakes": None,
+            "lc0_black_inaccuracies": None,
+            "lc0_engine_nodes": None,
+            "lc0_network_name": None,
         }
     return {
         "lc0_white_win_prob": lga.white_win_prob,
@@ -227,6 +253,10 @@ def _lc0_moves_from_db(move_rows: list["Lc0MoveAnalysis"]) -> pd.DataFrame:
             "best_move": m.best_move,
             "arrow_uci": m.arrow_uci,
             "arrow_uci_2": m.arrow_uci_2 or "",
+            "arrow_uci_3": m.arrow_uci_3 or "",
+            "arrow_score_1": m.arrow_score_1,
+            "arrow_score_2": m.arrow_score_2,
+            "arrow_score_3": m.arrow_score_3,
             "move_win_delta": m.move_win_delta,
             "classification": m.classification,
         }
@@ -247,6 +277,9 @@ def _moves_from_db(move_rows: list[MoveAnalysis]) -> pd.DataFrame:
             "arrow_uci": m.arrow_uci,
             "arrow_uci_2": m.arrow_uci_2 or "",
             "arrow_uci_3": m.arrow_uci_3 or "",
+            "arrow_score_1": m.arrow_score_1,
+            "arrow_score_2": m.arrow_score_2,
+            "arrow_score_3": m.arrow_score_3,
             "cpl": m.cpl,
             "classification": m.classification,
         }

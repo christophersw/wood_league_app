@@ -53,7 +53,7 @@ def _fmt_wdl(win: float | None, draw: float | None, loss: float | None) -> str:
 
 
 def _is_recent(played_at: object, days: int = 7) -> bool:
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
     if isinstance(played_at, pd.Timestamp):
         ts = played_at
         # Strip tz so comparison is always naive
@@ -243,13 +243,13 @@ def _recent_games_table_html(df: pd.DataFrame) -> str:
         slug        = row.get("slug") or None
         game_link   = escape(f"/game-analysis?slug={slug}") if slug else escape(f"/game-analysis?game_id={row['game_id']}")
         link_label  = "Open"
-        
+
         # Link to opening position page if opening_id is available
         if opening_id:
             opening_link = escape(f"/opening-position?opening_id={opening_id}")
         else:
             opening_link = "/opening-position"
-        
+
         rows.append(f"""<tr>
           <td class="wc-rank">#{rank}</td>
           <td class="wc-player">♙ {white}</td>
@@ -491,7 +491,7 @@ if not _edges_df.empty:
     _all_club_games = _oa_service.club_recent_games()
 
     # Apply the same time filter as the rest of the page
-    _oa_cutoff = datetime.utcnow() - timedelta(days=lookback)
+    _oa_cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=lookback)
     _oa_played = pd.to_datetime(_all_club_games["played_at"], errors="coerce")
     if _oa_played.dt.tz is not None:
         _oa_played = _oa_played.dt.tz_localize(None)

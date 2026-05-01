@@ -1,5 +1,7 @@
 # Agent Instructions — Wood League Chess
 
+Be brief.
+
 ## Security: scan edited Python files
 
 After editing any `.py` file, run `bandit` on that file and fix any Medium or High

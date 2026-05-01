@@ -854,30 +854,63 @@ if missing_lc0 or missing_sf:
 st.markdown("---")
 
 
-# Build per-engine tiered arrow maps: {ply: [best_uci, better_uci, good_uci]}
-def _build_sf_tiers(df) -> "dict[int, list[str]]":
-    tiers: dict[int, list[str]] = {}
+# Build per-engine tier maps:
+# {ply: [{"uci": str, "score": float|None}, ...]} (up to 3 tiers)
+def _build_sf_tiers(df) -> "dict[int, list[dict[str, object]]]":
+    tiers: dict[int, list[dict[str, object]]] = {}
     for _, r in df.iterrows():
         tier = [
-            str(r.get("arrow_uci", "") or ""),
-            str(r.get("arrow_uci_2", "") or ""),
-            str(r.get("arrow_uci_3", "") or ""),
+            {"uci": str(r.get("arrow_uci", "") or ""), "score": r.get("arrow_score_1")},
+            {
+                "uci": str(r.get("arrow_uci_2", "") or ""),
+                "score": r.get("arrow_score_2"),
+            },
+            {
+                "uci": str(r.get("arrow_uci_3", "") or ""),
+                "score": r.get("arrow_score_3"),
+            },
         ]
-        if any(tier):
+        if any(str(t.get("uci", "") or "") for t in tier):
             tiers[int(r["ply"])] = tier
     return tiers
 
 
-def _build_lc0_tiers(df) -> "dict[int, list[str]]":
-    tiers: dict[int, list[str]] = {}
+def _build_lc0_tiers(df) -> "dict[int, list[dict[str, object]]]":
+    tiers: dict[int, list[dict[str, object]]] = {}
     for _, r in df.iterrows():
         tier = [
-            str(r.get("arrow_uci", "") or ""),
-            str(r.get("arrow_uci_2", "") or ""),
+            {"uci": str(r.get("arrow_uci", "") or ""), "score": r.get("arrow_score_1")},
+            {
+                "uci": str(r.get("arrow_uci_2", "") or ""),
+                "score": r.get("arrow_score_2"),
+            },
+            {
+                "uci": str(r.get("arrow_uci_3", "") or ""),
+                "score": r.get("arrow_score_3"),
+            },
         ]
-        if any(tier):
+        if any(str(t.get("uci", "") or "") for t in tier):
             tiers[int(r["ply"])] = tier
     return tiers
+
+
+def _build_played_score_map(df, score_col: str) -> "dict[int, float]":
+    scores: dict[int, float] = {}
+    if df is None or df.empty or score_col not in df.columns:
+        return scores
+    for _, r in df.iterrows():
+        raw_score = r.get(score_col)
+        if raw_score is None:
+            continue
+        try:
+            score = float(raw_score)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(score):
+            continue
+        ply = int(r["ply"])
+        scores[ply] = score if ply % 2 == 1 else -score
+    return scores
 
 
 _sf_tiers = _build_sf_tiers(analysis.moves) if not analysis.moves.empty else {}
@@ -886,33 +919,15 @@ _lc0_tiers = (
     if lc0_ready and analysis.lc0_moves is not None and not analysis.lc0_moves.empty
     else {}
 )
+_sf_played_scores = _build_played_score_map(analysis.moves, "cp_eval")
+_lc0_played_scores = (
+    _build_played_score_map(analysis.lc0_moves, "cp_equiv")
+    if lc0_ready and analysis.lc0_moves is not None and not analysis.lc0_moves.empty
+    else {}
+)
 
 _has_sf = bool(_sf_tiers)
 _has_lc0 = bool(_lc0_tiers)
-
-# Per-engine on/off toggles (only show checkboxes for engines that have data)
-_show_sf = False
-_show_lc0 = False
-if _has_sf or _has_lc0:
-    st.html("""<style>
-      .arrow-legend{display:flex;gap:18px;align-items:center;
-        font-family:'DM Mono',monospace;font-size:0.62rem;
-        letter-spacing:0.07em;text-transform:uppercase;margin-top:2px}
-      .arrow-legend .swatch{display:inline-block;width:28px;height:5px;
-        border-radius:2px;margin-right:4px;vertical-align:middle}
-    </style>
-    <div class="arrow-legend">
-      <span><span class="swatch" style="background:linear-gradient(90deg,#D4A843CC,#D4A84777,#D4A84733)"></span>Stockfish: best · better · good</span>
-      <span><span class="swatch" style="background:linear-gradient(90deg,#4A6E8ACC,#4A6E8A77,#4A6E8A33)"></span>Lc0: best · better</span>
-    </div>""")
-    _chk_col1, _chk_col2, *_ = st.columns([1, 1, 3])
-    with _chk_col1:
-        _show_sf = st.checkbox("Stockfish arrows", value=_has_sf, disabled=not _has_sf)
-    with _chk_col2:
-        _show_lc0 = st.checkbox("Lc0 arrows", value=_has_lc0, disabled=not _has_lc0)
-
-board_sf_tiers = _sf_tiers if _show_sf else None
-board_lc0_tiers = _lc0_tiers if _show_lc0 else None
 
 # Build chart data — pass both when available; board renders them as stacked charts
 wdl_data = None
@@ -940,8 +955,16 @@ render_svg_game_viewer(
     eval_data=eval_data,
     white_player=white_label,
     black_player=black_label,
-    sf_arrow_tiers=board_sf_tiers,
-    lc0_arrow_tiers=board_lc0_tiers,
+    sf_arrow_tiers=_sf_tiers if _has_sf else None,
+    lc0_arrow_tiers=_lc0_tiers if _has_lc0 else None,
+    sf_played_scores=_sf_played_scores,
+    lc0_played_scores=_lc0_played_scores,
+    sf_arrow_label_prefix="SF",
+    lc0_arrow_label_prefix="Lc0",
+    has_sf=_has_sf,
+    has_lc0=_has_lc0,
+    show_sf_initial=True,
+    show_lc0_initial=True,
 )
 
 # ── Admin ─────────────────────────────────────────────────────────────────────

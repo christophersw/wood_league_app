@@ -1,4 +1,5 @@
 """Worker that claims lc0 AnalysisJob rows and runs Leela Chess Zero WDL analysis."""
+
 from __future__ import annotations
 
 import logging
@@ -6,17 +7,19 @@ import socket
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, and_, func
+from sqlalchemy import and_, func, select
 
 _IS_TTY = sys.stdout.isatty()
 
 from app.services.lc0_service import analyze_pgn
 from app.storage.database import ENGINE, get_session, init_db
 from app.storage.models import (
-    AnalysisJob, Game,
-    Lc0GameAnalysis, Lc0MoveAnalysis,
+    AnalysisJob,
+    Game,
+    Lc0GameAnalysis,
+    Lc0MoveAnalysis,
     WorkerHeartbeat,
 )
 
@@ -97,20 +100,27 @@ def _save_analysis(job: _ClaimedJob, result) -> None:
         session.flush()
 
         for mr in result.moves:
-            session.add(Lc0MoveAnalysis(
-                analysis_id=lga.id,
-                ply=mr.ply,
-                san=mr.san,
-                fen=mr.fen,
-                wdl_win=mr.wdl_win,
-                wdl_draw=mr.wdl_draw,
-                wdl_loss=mr.wdl_loss,
-                cp_equiv=mr.cp_equiv,
-                best_move=mr.best_move,
-                arrow_uci=mr.arrow_uci,
-                move_win_delta=mr.move_win_delta,
-                classification=mr.classification,
-            ))
+            session.add(
+                Lc0MoveAnalysis(
+                    analysis_id=lga.id,
+                    ply=mr.ply,
+                    san=mr.san,
+                    fen=mr.fen,
+                    wdl_win=mr.wdl_win,
+                    wdl_draw=mr.wdl_draw,
+                    wdl_loss=mr.wdl_loss,
+                    cp_equiv=mr.cp_equiv,
+                    best_move=mr.best_move,
+                    arrow_uci=mr.arrow_uci,
+                    arrow_uci_2=mr.arrow_uci_2,
+                    arrow_uci_3=mr.arrow_uci_3,
+                    arrow_score_1=mr.arrow_score_1,
+                    arrow_score_2=mr.arrow_score_2,
+                    arrow_score_3=mr.arrow_score_3,
+                    move_win_delta=mr.move_win_delta,
+                    classification=mr.classification,
+                )
+            )
 
         session.commit()
 
@@ -134,13 +144,19 @@ def _mark_failed(job_id: int, error: str) -> None:
             session.commit()
 
 
-def _heartbeat(status: str, current_game_id: str | None = None,
-               jobs_completed: int = 0, jobs_failed: int = 0) -> None:
+def _heartbeat(
+    status: str,
+    current_game_id: str | None = None,
+    jobs_completed: int = 0,
+    jobs_failed: int = 0,
+) -> None:
     try:
         with get_session() as session:
             row = session.get(WorkerHeartbeat, _WORKER_ID)
             if row is None:
-                row = WorkerHeartbeat(worker_id=_WORKER_ID, started_at=datetime.now(timezone.utc))
+                row = WorkerHeartbeat(
+                    worker_id=_WORKER_ID, started_at=datetime.now(timezone.utc)
+                )
                 session.add(row)
             row.last_seen = datetime.now(timezone.utc)
             row.status = status
@@ -156,23 +172,23 @@ _STALE_MINUTES = 15
 
 
 def _recover_stale_jobs() -> int:
-    from sqlalchemy import text as sa_text
-    is_pg = ENGINE.dialect.name == "postgresql"
+    from sqlalchemy import update
+
+    cutoff = datetime.utcnow() - timedelta(minutes=_STALE_MINUTES)
     with get_session() as session:
-        if is_pg:
-            result = session.execute(sa_text(
-                "UPDATE analysis_jobs SET status='pending', worker_id=NULL, started_at=NULL "
-                f"WHERE engine='lc0' AND status='running' "
-                f"AND started_at < NOW() - INTERVAL '{_STALE_MINUTES} minutes'"
-            ))
-        else:
-            result = session.execute(sa_text(
-                "UPDATE analysis_jobs SET status='pending', worker_id=NULL, started_at=NULL "
-                f"WHERE engine='lc0' AND status='running' "
-                f"AND started_at < datetime('now', '-{_STALE_MINUTES} minutes')"
-            ))
+        result = session.execute(
+            update(AnalysisJob)
+            .where(
+                and_(
+                    AnalysisJob.engine == "lc0",
+                    AnalysisJob.status == "running",
+                    AnalysisJob.started_at < cutoff,
+                )
+            )
+            .values(status="pending", worker_id=None, started_at=None)
+        )
         session.commit()
-        return result.rowcount
+        return int(result.rowcount or 0)
 
 
 def run_worker(
@@ -186,7 +202,9 @@ def run_worker(
     recovered = _recover_stale_jobs()
     if recovered:
         log.info("Recovered %d stale lc0 job(s) back to pending.", recovered)
-    log.info("Lc0 worker starting. lc0=%s nodes=%d limit=%s", lc0_path, nodes, limit or "∞")
+    log.info(
+        "Lc0 worker starting. lc0=%s nodes=%d limit=%s", lc0_path, nodes, limit or "∞"
+    )
 
     with get_session() as session:
         total = session.execute(
@@ -216,8 +234,12 @@ def run_worker(
                 time.sleep(poll_interval)
                 continue
 
-            _heartbeat("analyzing", current_game_id=job.game_id,
-                       jobs_completed=processed, jobs_failed=failed)
+            _heartbeat(
+                "analyzing",
+                current_game_id=job.game_id,
+                jobs_completed=processed,
+                jobs_failed=failed,
+            )
 
             try:
                 pgn_text = _load_pgn(job.game_id)
@@ -228,22 +250,33 @@ def run_worker(
                     if ply % 10 == 0:
                         log.debug("  Lc0 ply %d/%d %s", ply, total_m, san)
 
-                result = analyze_pgn(pgn_text, lc0_path=lc0_path, nodes=nodes,
-                                     move_callback=on_move)
+                result = analyze_pgn(
+                    pgn_text, lc0_path=lc0_path, nodes=nodes, move_callback=on_move
+                )
                 _save_analysis(job, result)
                 _mark_completed(job.id)
                 processed += 1
                 log.info(
                     "Lc0 completed job %d (%d/%s)  game=%s  W-win=%.1f%%  B-win=%.1f%%",
-                    job.id, processed, limit or "∞", job.game_id,
-                    result.white_stats.avg_win_prob, result.black_stats.avg_win_prob,
+                    job.id,
+                    processed,
+                    limit or "∞",
+                    job.game_id,
+                    result.white_stats.avg_win_prob,
+                    result.black_stats.avg_win_prob,
                 )
             except Exception as exc:
                 failed += 1
-                log.exception("Lc0 job %d FAILED (game=%s): %s", job.id, job.game_id, exc)
+                log.exception(
+                    "Lc0 job %d FAILED (game=%s): %s", job.id, job.game_id, exc
+                )
                 _mark_failed(job.id, str(exc))
-                _heartbeat("error", current_game_id=job.game_id,
-                           jobs_completed=processed, jobs_failed=failed)
+                _heartbeat(
+                    "error",
+                    current_game_id=job.game_id,
+                    jobs_completed=processed,
+                    jobs_failed=failed,
+                )
     finally:
         _heartbeat("stopped", jobs_completed=processed, jobs_failed=failed)
 

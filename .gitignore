@@ -1,6 +1,11 @@
 .env
 data/openings/
 
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Snyk scan artifacts
 .snyk-venv/
 .snyk-requirements.txt

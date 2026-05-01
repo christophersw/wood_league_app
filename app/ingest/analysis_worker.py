@@ -1,4 +1,5 @@
 """Worker that claims AnalysisJob rows and runs Stockfish analysis."""
+
 from __future__ import annotations
 
 import logging
@@ -8,16 +9,22 @@ import socket
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, and_, func
+from sqlalchemy import and_, func, select
 from tqdm import tqdm
 
 _IS_TTY = sys.stdout.isatty()
 
 from app.services.stockfish_service import analyze_pgn
 from app.storage.database import ENGINE, get_session, init_db
-from app.storage.models import AnalysisJob, Game, GameAnalysis, MoveAnalysis, WorkerHeartbeat
+from app.storage.models import (
+    AnalysisJob,
+    Game,
+    GameAnalysis,
+    MoveAnalysis,
+    WorkerHeartbeat,
+)
 
 log = logging.getLogger(__name__)
 
@@ -49,12 +56,15 @@ def _collect_worker_info(stockfish_path: str) -> dict:
                         break
         elif platform.system() == "Darwin":
             import subprocess
+
             cpu_model = subprocess.check_output(
                 ["sysctl", "-n", "machdep.cpu.brand_string"], text=True
             ).strip()
-            mem_bytes = int(subprocess.check_output(
-                ["sysctl", "-n", "hw.memsize"], text=True
-            ).strip())
+            mem_bytes = int(
+                subprocess.check_output(
+                    ["sysctl", "-n", "hw.memsize"], text=True
+                ).strip()
+            )
             memory_mb = mem_bytes // (1024 * 1024)
     except Exception:
         pass
@@ -145,24 +155,33 @@ def _save_analysis(job: _ClaimedJob, result) -> None:
         session.flush()
 
         for mr in result.moves:
-            session.add(MoveAnalysis(
-                analysis_id=ga.id,
-                ply=mr.ply,
-                san=mr.san,
-                fen=mr.fen,
-                cp_eval=mr.cp_eval,
-                best_move=mr.best_move,
-                arrow_uci=mr.arrow_uci,
-                cpl=mr.cpl,
-                classification=mr.classification,
-            ))
+            session.add(
+                MoveAnalysis(
+                    analysis_id=ga.id,
+                    ply=mr.ply,
+                    san=mr.san,
+                    fen=mr.fen,
+                    cp_eval=mr.cp_eval,
+                    best_move=mr.best_move,
+                    arrow_uci=mr.arrow_uci,
+                    arrow_uci_2=mr.arrow_uci_2,
+                    arrow_uci_3=mr.arrow_uci_3,
+                    arrow_score_1=mr.arrow_score_1,
+                    arrow_score_2=mr.arrow_score_2,
+                    arrow_score_3=mr.arrow_score_3,
+                    cpl=mr.cpl,
+                    classification=mr.classification,
+                )
+            )
 
         game = session.get(Game, job.game_id)
         if game:
             for participant in game.participants:
                 color = participant.color.lower()
-                stats = result.white_stats if color == "white" else (
-                    result.black_stats if color == "black" else None
+                stats = (
+                    result.white_stats
+                    if color == "white"
+                    else (result.black_stats if color == "black" else None)
                 )
                 if stats is None:
                     continue
@@ -234,31 +253,29 @@ _STALE_MINUTES = 10
 
 def _recover_stale_jobs() -> int:
     """Reset jobs stuck in 'running' for longer than _STALE_MINUTES back to 'pending'."""
-    from sqlalchemy import update, func
-    from app.storage.database import ENGINE
+    from sqlalchemy import update
 
-    is_pg = ENGINE.dialect.name == "postgresql"
+    cutoff = datetime.utcnow() - timedelta(minutes=_STALE_MINUTES)
     with get_session() as session:
-        if is_pg:
-            cutoff_expr = func.now() - func.cast(f"{_STALE_MINUTES} minutes", type_=None)
-            # Use text for the interval cast which varies by dialect
-            from sqlalchemy import text as sa_text
-            result = session.execute(sa_text(
-                "UPDATE analysis_jobs SET status='pending', worker_id=NULL, started_at=NULL "
-                f"WHERE status='running' AND started_at < NOW() - INTERVAL '{_STALE_MINUTES} minutes'"
-            ))
-        else:
-            # SQLite: use datetime arithmetic
-            from sqlalchemy import text as sa_text
-            result = session.execute(sa_text(
-                "UPDATE analysis_jobs SET status='pending', worker_id=NULL, started_at=NULL "
-                f"WHERE status='running' AND started_at < datetime('now', '-{_STALE_MINUTES} minutes')"
-            ))
+        result = session.execute(
+            update(AnalysisJob)
+            .where(
+                and_(AnalysisJob.status == "running", AnalysisJob.started_at < cutoff)
+            )
+            .values(status="pending", worker_id=None, started_at=None)
+        )
         session.commit()
-        return result.rowcount
+        return int(result.rowcount or 0)
 
 
-def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, hash_mb: int = 256, poll_interval: float = 5.0, limit: int | None = None) -> None:
+def run_worker(
+    stockfish_path: str,
+    depth: int = 20,
+    threads: int = 1,
+    hash_mb: int = 256,
+    poll_interval: float = 5.0,
+    limit: int | None = None,
+) -> None:
     """
     Main worker loop. Continuously claims and processes jobs until no more remain.
     Set poll_interval=0 to exit immediately when the queue is empty.
@@ -271,7 +288,10 @@ def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, hash_mb: 
     worker_info = _collect_worker_info(stockfish_path)
     log.info(
         "Worker starting. stockfish=%s depth=%d threads=%d hash=%dMB cpu=%s cores=%s ram=%sMB limit=%s",
-        stockfish_path, depth, threads, hash_mb,
+        stockfish_path,
+        depth,
+        threads,
+        hash_mb,
         worker_info.get("cpu_model", "unknown"),
         worker_info.get("cpu_cores"),
         worker_info.get("memory_mb"),
@@ -288,8 +308,12 @@ def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, hash_mb: 
 
     processed = 0
     failed = 0
-    _LOG_INTERVAL = 10   # emit a summary log every N completed jobs when not in TTY
-    bar = tqdm(total=total, unit="game", desc="Analyzing", dynamic_ncols=True) if _IS_TTY else None
+    _LOG_INTERVAL = 10  # emit a summary log every N completed jobs when not in TTY
+    bar = (
+        tqdm(total=total, unit="game", desc="Analyzing", dynamic_ncols=True)
+        if _IS_TTY
+        else None
+    )
 
     _heartbeat("starting", jobs_completed=0, jobs_failed=0, worker_info=worker_info)
 
@@ -308,14 +332,26 @@ def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, hash_mb: 
                 time.sleep(poll_interval)
                 continue
 
-            _heartbeat("analyzing", current_game_id=job.game_id,
-                       jobs_completed=processed, jobs_failed=failed)
+            _heartbeat(
+                "analyzing",
+                current_game_id=job.game_id,
+                jobs_completed=processed,
+                jobs_failed=failed,
+            )
 
             if bar:
                 bar.set_postfix_str(f"game {job.game_id[:16]}")
             move_bar = (
-                tqdm(total=None, unit="move", desc="  Move", leave=False, dynamic_ncols=True, position=1)
-                if _IS_TTY else None
+                tqdm(
+                    total=None,
+                    unit="move",
+                    desc="  Move",
+                    leave=False,
+                    dynamic_ncols=True,
+                    position=1,
+                )
+                if _IS_TTY
+                else None
             )
             try:
                 pgn_text = _load_pgn(job.game_id)
@@ -332,8 +368,14 @@ def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, hash_mb: 
                     move_bar.set_postfix_str(san)
                     move_bar.refresh()
 
-                result = analyze_pgn(pgn_text, stockfish_path=stockfish_path,
-                                     depth=depth, threads=threads, hash_mb=hash_mb, move_callback=on_move)
+                result = analyze_pgn(
+                    pgn_text,
+                    stockfish_path=stockfish_path,
+                    depth=depth,
+                    threads=threads,
+                    hash_mb=hash_mb,
+                    move_callback=on_move,
+                )
                 _save_analysis(job, result)
                 _mark_completed(job.id)
                 processed += 1
@@ -346,23 +388,37 @@ def run_worker(stockfish_path: str, depth: int = 20, threads: int = 1, hash_mb: 
                 else:
                     log.info(
                         "Completed job %d (%d/%s)  game=%s  W=%.1f%%  B=%.1f%%",
-                        job.id, processed, limit or "∞", job.game_id,
-                        result.white_stats.accuracy, result.black_stats.accuracy,
+                        job.id,
+                        processed,
+                        limit or "∞",
+                        job.game_id,
+                        result.white_stats.accuracy,
+                        result.black_stats.accuracy,
                     )
                     if processed % _LOG_INTERVAL == 0:
                         with get_session() as session:
                             remaining = session.execute(
-                                select(func.count()).where(AnalysisJob.status == "pending")
+                                select(func.count()).where(
+                                    AnalysisJob.status == "pending"
+                                )
                             ).scalar_one()
-                        log.info("Progress: %d completed, %d failed, %d still pending.",
-                                 processed, failed, remaining)
+                        log.info(
+                            "Progress: %d completed, %d failed, %d still pending.",
+                            processed,
+                            failed,
+                            remaining,
+                        )
 
             except Exception as exc:
                 failed += 1
                 log.exception("Job %d FAILED (game=%s): %s", job.id, job.game_id, exc)
                 _mark_failed(job.id, str(exc))
-                _heartbeat("error", current_game_id=job.game_id,
-                           jobs_completed=processed, jobs_failed=failed)
+                _heartbeat(
+                    "error",
+                    current_game_id=job.game_id,
+                    jobs_completed=processed,
+                    jobs_failed=failed,
+                )
                 if bar:
                     bar.update(1)
             finally:
