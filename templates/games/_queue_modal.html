@@ -1,0 +1,91 @@
+{# Queue analysis re-run confirmation modal.
+   Opened by openQueueModal(engine) — called from stat card rerun buttons.
+   On confirm, submits an HTMX POST to the queue endpoint and swaps the
+   calling button with the response fragment. #}
+
+<dialog id="queue-confirm-modal" style="
+  border:2.5px solid #1A1A1A;
+  background:#F2E6D0;
+  padding:0;
+  max-width:440px;
+  width:90%;
+  font-family:'DM Mono','Courier New',monospace;
+">
+  <div style="border-bottom:1.5px solid #1A1A1A;padding:.9rem 1.2rem;display:flex;justify-content:space-between;align-items:center;">
+    <span style="font-family:'Playfair Display SC',Georgia,serif;font-size:1rem;letter-spacing:.06em;color:#1A3A2A;">
+      Queue Analysis Re-run
+    </span>
+    <button onclick="document.getElementById('queue-confirm-modal').close()"
+            style="background:transparent;border:none;cursor:pointer;font-size:1.2rem;color:#1A1A1A;line-height:1;padding:0 4px;"
+            aria-label="Close">&#x2715;</button>
+  </div>
+
+  <div style="padding:1.2rem;">
+    <p style="font-size:.82rem;color:#1A1A1A;margin:0 0 .8rem;line-height:1.6;">
+      Re-running <strong id="qm-engine-label" style="color:#8B3A2A;text-transform:uppercase;letter-spacing:.06em;"></strong>
+      analysis costs real money and electricity.
+    </p>
+    <p style="font-size:.75rem;color:#5A5A5A;margin:0 0 1.2rem;line-height:1.5;">
+      The existing analysis results will be replaced once the new job completes.
+      Only proceed if the current results appear incorrect or incomplete.
+    </p>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button onclick="document.getElementById('queue-confirm-modal').close()"
+              class="wc-btn" style="font-size:.75rem;padding:.3rem .8rem;">
+        Cancel
+      </button>
+      <button id="qm-confirm-btn"
+              class="wc-btn"
+              style="font-size:.75rem;padding:.3rem .8rem;background:#1A3A2A;color:#F2E6D0;border-color:#1A3A2A;">
+        Confirm Re-run
+      </button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+(function() {
+  var _queueEngine = '';
+  var _queueUrl    = '';
+
+  /**
+   * Open the queue confirmation modal for a given engine.
+   *
+   * Called from stat card rerun buttons. Sets up the confirm button's
+   * HTMX POST so it targets and replaces the calling button element.
+   *
+   * @param {string} engine - "stockfish" or "lc0"
+   */
+  window.openQueueModal = function(engine) {
+    _queueEngine = engine;
+    var label = engine === 'lc0' ? 'Lc0' : 'Stockfish';
+    document.getElementById('qm-engine-label').textContent = label;
+    document.getElementById('queue-confirm-modal').showModal();
+  };
+
+  document.getElementById('qm-confirm-btn').addEventListener('click', function() {
+    document.getElementById('queue-confirm-modal').close();
+    if (!_queueEngine) return;
+
+    // Derive queue URL from the page's ANALYSIS_DATA if available
+    var queueUrl = window.ANALYSIS_DATA && window.ANALYSIS_DATA.queue_url
+      ? window.ANALYSIS_DATA.queue_url
+      : '';
+
+    if (!queueUrl) return;
+
+    var targetId = 'queue-btn-' + _queueEngine;
+    htmx.ajax('POST', queueUrl, {
+      target:  '#' + targetId,
+      swap:    'outerHTML',
+      values:  { engine: _queueEngine },
+    });
+  });
+
+  // Dismiss on backdrop click
+  document.getElementById('queue-confirm-modal').addEventListener('click', function(e) {
+    if (e.target === this) this.close();
+  });
+})();
+</script>

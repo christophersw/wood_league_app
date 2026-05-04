@@ -1,4 +1,13 @@
-"""Services for retrieving and assembling game analysis data from multiple sources."""
+"""
+Title: services.py — Game analysis data assembly service
+Description:
+    Loads and assembles complete game analysis data from Stockfish and Lc0
+    database records into a single GameAnalysisData dataclass for use by
+    views and template rendering utilities.
+
+Changelog:
+    2026-05-04 (#16): Added opening_id field for linking to opening detail page
+"""
 
 from __future__ import annotations
 
@@ -9,6 +18,7 @@ import chess.pgn
 
 from analysis.models import GameAnalysis, Lc0GameAnalysis
 from games.models import Game
+from openings.models import OpeningBook
 
 
 @dataclass
@@ -78,6 +88,7 @@ class GameAnalysisData:
     eco_code: str = ""
     opening_name: str = ""
     lichess_opening: str | None = None
+    opening_id: int | None = None
 
     @property
     def has_sf(self) -> bool:
@@ -105,7 +116,18 @@ class GameAnalysisData:
 
 
 def get_game_analysis(slug: str) -> GameAnalysisData | None:
-    """Load and assemble game analysis from Stockfish and Lc0 sources, or None if not found."""
+    """
+    Load and assemble game analysis from Stockfish and Lc0 sources.
+
+    Params:
+        slug (str): The URL slug for the game record.
+
+    Returns:
+        GameAnalysisData if the game and PGN exist, None otherwise.
+
+    Side effects:
+        Queries Game, GameAnalysis, Lc0GameAnalysis, and OpeningBook tables.
+    """
     try:
         db_game = Game.objects.select_related().get(slug=slug)
     except Game.DoesNotExist:
@@ -127,6 +149,13 @@ def get_game_analysis(slug: str) -> GameAnalysisData | None:
     if not date:
         date = game.headers.get("Date", "")
 
+    eco_code = db_game.eco_code or ""
+    opening_name = db_game.opening_name or ""
+
+    opening_id = None
+    if eco_code:
+        opening_id = OpeningBook.objects.filter(eco=eco_code).values_list("id", flat=True).first()
+
     lga = _load_lc0(db_game)
     lc0_moves = _lc0_move_rows(lga)
     lc0_kwargs = _lc0_summary_kwargs(lga)
@@ -136,49 +165,26 @@ def get_game_analysis(slug: str) -> GameAnalysisData | None:
     if ga is not None and ga.analyzed_at is not None:
         sf_moves = [
             MoveRow(
-                ply=m.ply,
-                san=m.san,
-                fen=m.fen,
-                cp_eval=m.cp_eval,
-                cpl=m.cpl,
-                best_move=m.best_move or "",
-                arrow_uci=m.arrow_uci or "",
-                arrow_uci_2=m.arrow_uci_2 or "",
-                arrow_uci_3=m.arrow_uci_3 or "",
-                arrow_score_1=m.arrow_score_1,
-                arrow_score_2=m.arrow_score_2,
-                arrow_score_3=m.arrow_score_3,
-                classification=m.classification,
+                ply=m.ply, san=m.san, fen=m.fen, cp_eval=m.cp_eval, cpl=m.cpl,
+                best_move=m.best_move or "", arrow_uci=m.arrow_uci or "",
+                arrow_uci_2=m.arrow_uci_2 or "", arrow_uci_3=m.arrow_uci_3 or "",
+                arrow_score_1=m.arrow_score_1, arrow_score_2=m.arrow_score_2,
+                arrow_score_3=m.arrow_score_3, classification=m.classification,
             )
             for m in ga.moves.order_by("ply")
         ]
         return GameAnalysisData(
-            game_id=db_game.id,
-            white=white,
-            black=black,
-            result=result,
-            pgn=pgn_text,
-            moves=sf_moves,
-            date=date,
-            time_control=time_control,
-            url=url,
-            white_accuracy=ga.white_accuracy,
-            black_accuracy=ga.black_accuracy,
-            white_acpl=ga.white_acpl,
-            black_acpl=ga.black_acpl,
-            white_blunders=ga.white_blunders,
-            white_mistakes=ga.white_mistakes,
-            white_inaccuracies=ga.white_inaccuracies,
-            black_blunders=ga.black_blunders,
-            black_mistakes=ga.black_mistakes,
-            black_inaccuracies=ga.black_inaccuracies,
-            engine_depth=ga.engine_depth,
-            white_rating=db_game.white_rating,
-            black_rating=db_game.black_rating,
-            lc0_moves=lc0_moves,
-            eco_code=db_game.eco_code or "",
-            opening_name=db_game.opening_name or "",
-            lichess_opening=db_game.lichess_opening,
+            game_id=db_game.id, white=white, black=black, result=result, pgn=pgn_text,
+            moves=sf_moves, date=date, time_control=time_control, url=url,
+            white_accuracy=ga.white_accuracy, black_accuracy=ga.black_accuracy,
+            white_acpl=ga.white_acpl, black_acpl=ga.black_acpl,
+            white_blunders=ga.white_blunders, white_mistakes=ga.white_mistakes,
+            white_inaccuracies=ga.white_inaccuracies, black_blunders=ga.black_blunders,
+            black_mistakes=ga.black_mistakes, black_inaccuracies=ga.black_inaccuracies,
+            engine_depth=ga.engine_depth, white_rating=db_game.white_rating,
+            black_rating=db_game.black_rating, lc0_moves=lc0_moves,
+            eco_code=eco_code, opening_name=opening_name,
+            lichess_opening=db_game.lichess_opening, opening_id=opening_id,
             **lc0_kwargs,
         )
 
@@ -193,40 +199,26 @@ def get_game_analysis(slug: str) -> GameAnalysisData | None:
         board.push(move)
         abs_ply = ply_i + start_offset
         lm = lc0_by_ply.get(abs_ply) or lc0_by_ply.get(ply_i)
-        pgn_moves.append(
-            MoveRow(
-                ply=abs_ply,
-                san=san,
-                fen=board.fen(),
-                cp_eval=float(lm.cp_equiv) if lm and lm.cp_equiv is not None else None,
-                best_move=lm.best_move if lm else "",
-                arrow_uci=lm.arrow_uci if lm else "",
-                classification=lm.classification if lm else None,
-            )
-        )
+        pgn_moves.append(MoveRow(
+            ply=abs_ply, san=san, fen=board.fen(),
+            cp_eval=float(lm.cp_equiv) if lm and lm.cp_equiv is not None else None,
+            best_move=lm.best_move if lm else "",
+            arrow_uci=lm.arrow_uci if lm else "",
+            classification=lm.classification if lm else None,
+        ))
 
     return GameAnalysisData(
-        game_id=db_game.id,
-        white=white,
-        black=black,
-        result=result,
-        pgn=pgn_text,
-        moves=pgn_moves,
-        date=date,
-        time_control=time_control,
-        url=url,
-        white_rating=db_game.white_rating,
-        black_rating=db_game.black_rating,
-        lc0_moves=lc0_moves,
-        eco_code=db_game.eco_code or "",
-        opening_name=db_game.opening_name or "",
-        lichess_opening=db_game.lichess_opening,
+        game_id=db_game.id, white=white, black=black, result=result, pgn=pgn_text,
+        moves=pgn_moves, date=date, time_control=time_control, url=url,
+        white_rating=db_game.white_rating, black_rating=db_game.black_rating,
+        lc0_moves=lc0_moves, eco_code=eco_code, opening_name=opening_name,
+        lichess_opening=db_game.lichess_opening, opening_id=opening_id,
         **lc0_kwargs,
     )
 
 
 def _load_sf(db_game: Game) -> GameAnalysis | None:
-    """Load Stockfish analysis for a game or return None if not analyzed."""
+    """Load Stockfish analysis for a game, or return None if not analyzed."""
     try:
         return db_game.analysis
     except GameAnalysis.DoesNotExist:
@@ -234,7 +226,7 @@ def _load_sf(db_game: Game) -> GameAnalysis | None:
 
 
 def _load_lc0(db_game: Game) -> Lc0GameAnalysis | None:
-    """Load Lc0 analysis for a game or return None if not analyzed."""
+    """Load Lc0 analysis for a game, or return None if not analyzed or incomplete."""
     try:
         lga = db_game.lc0_analysis
         if lga.analyzed_at is None:
@@ -250,22 +242,14 @@ def _lc0_move_rows(lga: Lc0GameAnalysis | None) -> list[MoveRow] | None:
         return None
     return [
         MoveRow(
-            ply=m.ply,
-            san=m.san,
-            fen=m.fen,
-            wdl_win=m.wdl_win,
-            wdl_draw=m.wdl_draw,
-            wdl_loss=m.wdl_loss,
-            cp_equiv=m.cp_equiv,
-            best_move=m.best_move or "",
-            arrow_uci=m.arrow_uci or "",
-            arrow_uci_2=m.arrow_uci_2 or "",
+            ply=m.ply, san=m.san, fen=m.fen,
+            wdl_win=m.wdl_win, wdl_draw=m.wdl_draw, wdl_loss=m.wdl_loss,
+            cp_equiv=m.cp_equiv, best_move=m.best_move or "",
+            arrow_uci=m.arrow_uci or "", arrow_uci_2=m.arrow_uci_2 or "",
             arrow_uci_3=m.arrow_uci_3 or "",
-            arrow_score_1=m.arrow_score_1,
-            arrow_score_2=m.arrow_score_2,
+            arrow_score_1=m.arrow_score_1, arrow_score_2=m.arrow_score_2,
             arrow_score_3=m.arrow_score_3,
-            move_win_delta=m.move_win_delta,
-            classification=m.classification,
+            move_win_delta=m.move_win_delta, classification=m.classification,
         )
         for m in lga.moves.order_by("ply")
     ]
@@ -275,34 +259,20 @@ def _lc0_summary_kwargs(lga: Lc0GameAnalysis | None) -> dict:
     """Build a dict of Lc0 summary stats for GameAnalysisData initialization."""
     if lga is None:
         return {
-            "lc0_white_win_prob": None,
-            "lc0_white_draw_prob": None,
-            "lc0_white_loss_prob": None,
-            "lc0_black_win_prob": None,
-            "lc0_black_draw_prob": None,
-            "lc0_black_loss_prob": None,
-            "lc0_white_blunders": None,
-            "lc0_white_mistakes": None,
-            "lc0_white_inaccuracies": None,
-            "lc0_black_blunders": None,
-            "lc0_black_mistakes": None,
-            "lc0_black_inaccuracies": None,
-            "lc0_engine_nodes": None,
-            "lc0_network_name": None,
+            "lc0_white_win_prob": None, "lc0_white_draw_prob": None,
+            "lc0_white_loss_prob": None, "lc0_black_win_prob": None,
+            "lc0_black_draw_prob": None, "lc0_black_loss_prob": None,
+            "lc0_white_blunders": None, "lc0_white_mistakes": None,
+            "lc0_white_inaccuracies": None, "lc0_black_blunders": None,
+            "lc0_black_mistakes": None, "lc0_black_inaccuracies": None,
+            "lc0_engine_nodes": None, "lc0_network_name": None,
         }
     return {
-        "lc0_white_win_prob": lga.white_win_prob,
-        "lc0_white_draw_prob": lga.white_draw_prob,
-        "lc0_white_loss_prob": lga.white_loss_prob,
-        "lc0_black_win_prob": lga.black_win_prob,
-        "lc0_black_draw_prob": lga.black_draw_prob,
-        "lc0_black_loss_prob": lga.black_loss_prob,
-        "lc0_white_blunders": lga.white_blunders,
-        "lc0_white_mistakes": lga.white_mistakes,
-        "lc0_white_inaccuracies": lga.white_inaccuracies,
-        "lc0_black_blunders": lga.black_blunders,
-        "lc0_black_mistakes": lga.black_mistakes,
-        "lc0_black_inaccuracies": lga.black_inaccuracies,
-        "lc0_engine_nodes": lga.engine_nodes,
-        "lc0_network_name": lga.network_name,
+        "lc0_white_win_prob": lga.white_win_prob, "lc0_white_draw_prob": lga.white_draw_prob,
+        "lc0_white_loss_prob": lga.white_loss_prob, "lc0_black_win_prob": lga.black_win_prob,
+        "lc0_black_draw_prob": lga.black_draw_prob, "lc0_black_loss_prob": lga.black_loss_prob,
+        "lc0_white_blunders": lga.white_blunders, "lc0_white_mistakes": lga.white_mistakes,
+        "lc0_white_inaccuracies": lga.white_inaccuracies, "lc0_black_blunders": lga.black_blunders,
+        "lc0_black_mistakes": lga.black_mistakes, "lc0_black_inaccuracies": lga.black_inaccuracies,
+        "lc0_engine_nodes": lga.engine_nodes, "lc0_network_name": lga.network_name,
     }

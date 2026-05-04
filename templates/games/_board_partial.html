@@ -1,0 +1,194 @@
+{# Board HTMX partial — loaded on page init and on orientation flip.
+   Contains all SVG frames as embedded JSON; JS handles animation and plySync
+   integration without further server requests. #}
+{% load static %}
+
+<style>
+.board-partial{font-family:Georgia,serif;background:transparent;}
+.board-partial .player-strip{display:flex;align-items:center;justify-content:space-between;border-top:2.5px solid #1A1A1A;border-bottom:1px solid #1A1A1A;padding:6px 4px;}
+.board-partial .player-side{font-family:'DM Mono',monospace;font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:#8B3A2A;}
+.board-partial .player-name{font-family:'EB Garamond','Cormorant Garamond',Georgia,serif;font-size:1.05rem;font-weight:600;color:#1A1A1A;letter-spacing:.02em;}
+.board-partial .board-wrap{border-left:2px solid #1A1A1A;border-right:2px solid #1A1A1A;background:#1A1A1A;}
+.board-partial .board-wrap svg{display:block;margin:0 auto;}
+.board-partial .controls{display:flex;align-items:center;gap:6px;padding:8px 0 6px;justify-content:center;border-top:1px solid #D4C4A0;}
+.board-partial .ctrl-btn{background:transparent;color:#1A1A1A;border:1.5px solid #1A1A1A;border-radius:0;padding:5px 12px;cursor:pointer;font-family:'DM Mono',monospace;font-size:14px;min-width:36px;line-height:1;transition:background .15s,color .15s;}
+.board-partial .ctrl-btn:hover{background:#1A1A1A;color:#F2E6D0;}
+.board-partial .ctrl-btn:active{background:#4A8C62;border-color:#4A8C62;color:#F2E6D0;}
+.board-partial .ply-scrubber{flex:1;max-width:260px;accent-color:#D4A843;cursor:pointer;}
+.board-partial .ply-label{font-family:'DM Mono',monospace;font-size:.7rem;color:#8B3A2A;min-width:80px;text-align:center;letter-spacing:.04em;}
+.board-partial .arrow-toggles{display:flex;gap:16px;align-items:center;padding:5px 4px 2px;font-family:'DM Mono',monospace;font-size:.72rem;letter-spacing:.04em;}
+.board-partial .arrow-toggle-label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none;}
+.board-partial .arrow-swatch{display:inline-block;width:20px;height:4px;border-radius:2px;vertical-align:middle;}
+</style>
+
+{# ── Data containers (not executed as scripts) ─────────────────────────── #}
+<script type="application/json" id="bp-frames-data">{{ frames_json }}</script>
+<script type="application/json" id="bp-arrows-data">{{ arrow_labels_json }}</script>
+<script type="application/json" id="bp-san-data">{{ san_list_json }}</script>
+<script type="application/json" id="bp-is-best-data">{{ is_best_json }}</script>
+
+<div class="board-partial" id="board-partial-root">
+  {# ── Top player ─────────────────────────────────────────────────────── #}
+  <div class="player-strip">
+    <span class="player-side">{{ top_sym }} {{ top_side }}</span>
+    <span class="player-name">{{ top_player }}</span>
+  </div>
+
+  {# ── Board SVG display ───────────────────────────────────────────────── #}
+  <div class="board-wrap"><div id="bp-board-display"></div></div>
+
+  {# ── Bottom player ───────────────────────────────────────────────────── #}
+  <div class="player-strip" style="border-top:1px solid #1A1A1A;border-bottom:2.5px solid #1A1A1A;">
+    <span class="player-side">{{ bottom_sym }} {{ bottom_side }}</span>
+    <span class="player-name">{{ bottom_player }}</span>
+  </div>
+
+  {# ── Playback controls ───────────────────────────────────────────────── #}
+  <div class="controls">
+    <button class="ctrl-btn" id="bp-btn-start" title="Start">&#x23EE;</button>
+    <button class="ctrl-btn" id="bp-btn-prev"  title="Previous">&#x25C0;</button>
+    <button class="ctrl-btn" id="bp-btn-play"  title="Play/Pause">&#x25B6;</button>
+    <button class="ctrl-btn" id="bp-btn-next"  title="Next">&#x25B6;&#xFE0E;</button>
+    <button class="ctrl-btn" id="bp-btn-end"   title="End">&#x23ED;</button>
+    <input  class="ply-scrubber" type="range" id="bp-scrubber" min="0" max="{{ total_frames|add:'-1' }}" value="0">
+    <span   class="ply-label"   id="bp-ply-label">Start</span>
+  </div>
+
+  {# ── Engine arrow toggles ────────────────────────────────────────────── #}
+  {% if has_sf or has_lc0 %}
+  <div class="arrow-toggles">
+    {% if has_sf %}
+    <label class="arrow-toggle-label" style="color:#D4A843;">
+      <input type="checkbox" id="bp-sf-toggle" checked>
+      <span class="arrow-swatch" style="background:linear-gradient(90deg,#D4A843EE,#D4A84308)"></span>
+      SF
+    </label>
+    {% endif %}
+    {% if has_lc0 %}
+    <label class="arrow-toggle-label" style="color:#4A6E8A;">
+      <input type="checkbox" id="bp-lc0-toggle" checked>
+      <span class="arrow-swatch" style="background:linear-gradient(90deg,#4A6E8AEE,#4A6E8A08)"></span>
+      Lc0
+    </label>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  var frames       = JSON.parse(document.getElementById('bp-frames-data').textContent);
+  var arrowLabels  = JSON.parse(document.getElementById('bp-arrows-data').textContent);
+  var sanList      = JSON.parse(document.getElementById('bp-san-data').textContent);
+  var totalFrames  = frames.length;
+
+  var boardEl   = document.getElementById('bp-board-display');
+  var scrubber  = document.getElementById('bp-scrubber');
+  var plyLabel  = document.getElementById('bp-ply-label');
+  var playBtn   = document.getElementById('bp-btn-play');
+  var sfToggle  = document.getElementById('bp-sf-toggle');
+  var lc0Toggle = document.getElementById('bp-lc0-toggle');
+
+  var playing  = false;
+  var playTimer = null;
+  var showSF   = {{ has_sf|yesno:"true,false" }};
+  var showLc0  = {{ has_lc0|yesno:"true,false" }};
+
+  // Register total ply count with the sync module
+  if (window.WoodLeagueAnalysis) {
+    window.WoodLeagueAnalysis.setTotalPlies(totalFrames - 1);
+  }
+
+  function applyArrowVisibility() {
+    boardEl.querySelectorAll('line[stroke*="D4A843"],polygon[fill*="D4A843"]')
+      .forEach(function(el) { el.style.display = showSF ? '' : 'none'; });
+    boardEl.querySelectorAll('line[stroke*="4A6E8A"],polygon[fill*="4A6E8A"]')
+      .forEach(function(el) { el.style.display = showLc0 ? '' : 'none'; });
+  }
+
+  function renderFrame(ply) {
+    if (!frames[ply]) return;
+    boardEl.innerHTML = frames[ply];
+    applyArrowVisibility();
+    scrubber.value = ply;
+    if (ply === 0) {
+      plyLabel.textContent = 'Start';
+    } else {
+      var moveNum = Math.ceil(ply / 2);
+      var suffix  = ply % 2 === 1 ? '' : '…';
+      plyLabel.textContent = moveNum + '.' + suffix + ' ply ' + ply;
+    }
+  }
+
+  function syncFromState(state) {
+    renderFrame(state.ply);
+  }
+
+  // Subscribe to shared state changes (ply changes from PGN, charts, etc.)
+  var unsubscribe = null;
+  if (window.WoodLeagueAnalysis) {
+    unsubscribe = window.WoodLeagueAnalysis.subscribe(syncFromState);
+    renderFrame(window.WoodLeagueAnalysis.getState().ply);
+  } else {
+    renderFrame(0);
+  }
+
+  // Broadcast ply changes from board controls to all other elements
+  function setPly(ply) {
+    if (window.WoodLeagueAnalysis) {
+      window.WoodLeagueAnalysis.setPly(ply);
+    } else {
+      renderFrame(ply);
+    }
+  }
+
+  function currentPly() {
+    return window.WoodLeagueAnalysis ? window.WoodLeagueAnalysis.getState().ply : parseInt(scrubber.value, 10);
+  }
+
+  // Playback controls
+  document.getElementById('bp-btn-start').onclick = function() { stopPlay(); setPly(0); };
+  document.getElementById('bp-btn-end').onclick   = function() { stopPlay(); setPly(totalFrames - 1); };
+  document.getElementById('bp-btn-prev').onclick  = function() { stopPlay(); setPly(Math.max(0, currentPly() - 1)); };
+  document.getElementById('bp-btn-next').onclick  = function() { stopPlay(); setPly(Math.min(totalFrames - 1, currentPly() + 1)); };
+  scrubber.oninput = function() { stopPlay(); setPly(parseInt(this.value, 10)); };
+
+  playBtn.onclick = function() { playing ? stopPlay() : startPlay(); };
+
+  function startPlay() {
+    if (playing) return;
+    if (currentPly() >= totalFrames - 1) setPly(0);
+    playing = true;
+    playBtn.innerHTML = '&#x23F8;';
+    playTimer = setInterval(function() {
+      var next = currentPly() + 1;
+      if (next >= totalFrames) { stopPlay(); return; }
+      setPly(next);
+    }, 800);
+  }
+
+  function stopPlay() {
+    if (!playing) return;
+    clearInterval(playTimer);
+    playing = false;
+    playBtn.innerHTML = '&#x25B6;';
+  }
+
+  // Arrow toggle handlers
+  if (sfToggle)  sfToggle.onchange  = function() { showSF  = this.checked; applyArrowVisibility(); };
+  if (lc0Toggle) lc0Toggle.onchange = function() { showLc0 = this.checked; applyArrowVisibility(); };
+
+  // Keyboard navigation (only when board area is focused)
+  document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === 'ArrowLeft')  { stopPlay(); setPly(Math.max(0, currentPly() - 1)); }
+    if (e.key === 'ArrowRight') { stopPlay(); setPly(Math.min(totalFrames - 1, currentPly() + 1)); }
+    if (e.key === ' ')          { e.preventDefault(); playing ? stopPlay() : startPlay(); }
+  });
+
+  // Clean up subscription if HTMX re-swaps this element
+  document.getElementById('board-partial-root').addEventListener('htmx:beforeCleanupElement', function() {
+    if (unsubscribe) unsubscribe();
+  });
+})();
+</script>
