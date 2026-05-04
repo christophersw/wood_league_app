@@ -1,75 +1,71 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}{{ data.white }} vs {{ data.black }} — Wood League Chess{% endblock %}
+{% block title %}
+  {% if no_data %}
+    {{ game.white_username }} vs {{ game.black_username }} — Wood League Chess
+  {% else %}
+    {{ data.white_label }} vs {{ data.black_label }} — Wood League Chess
+  {% endif %}
+{% endblock %}
 
 {% block content %}
-<div class="max-w-screen-xl mx-auto">
 
-  {# ── Header ──────────────────────────────────────────────────────────────── #}
-  <div class="border-b-2 border-ebony pb-4 mb-6">
-    <div class="flex items-start justify-between gap-4 flex-wrap">
-      <div>
-        <h1 class="font-display text-2xl text-forest leading-tight">
-          {% if no_data %}
-            {{ game.white_username }} vs {{ game.black_username }}
-          {% else %}
-            {{ data.white_label }} vs {{ data.black_label }}
-          {% endif %}
-        </h1>
-        {% if not no_data %}
-        <p class="font-mono text-xs text-peat mt-1">
-          {{ data.result }}
-          {% if details %} · {{ details }}{% endif %}
-        </p>
-        {% if opening_label %}
-        <p class="font-mono text-xs text-forest mt-1">
-          <span class="border border-forest px-2 py-0.5 inline-block">{{ opening_label }}</span>
-        </p>
-        {% endif %}
-        {% endif %}
-      </div>
-      <div class="flex gap-2 items-center flex-shrink-0">
-        {% if not no_data %}
-        <a href="{{ flip_url }}"
-           class="inline-block border border-ebony text-forest font-mono text-xs uppercase tracking-wide px-3 py-1.5 hover:bg-ebony hover:text-parchment transition-colors">
-          Flip Board
-        </a>
-        {% endif %}
-        {% if chesscom_url %}
-        <a href="{{ chesscom_url }}" target="_blank" rel="noopener"
-           class="inline-block border border-ebony text-slate font-mono text-xs uppercase tracking-wide px-3 py-1.5 hover:bg-ebony hover:text-parchment transition-colors">
-          Chess.com ↗
-        </a>
-        {% endif %}
-        <a href="{% url 'dashboard:index' %}"
-           class="inline-block border border-ebony text-slate font-mono text-xs uppercase tracking-wide px-3 py-1.5 hover:bg-ebony hover:text-parchment transition-colors">
-          ← Dashboard
-        </a>
-      </div>
-    </div>
-  </div>
-
-  {# ── No data state ────────────────────────────────────────────────────────── #}
-  {% if no_data %}
-  <div class="border border-peat/30 bg-cream p-6 rounded">
-    <p class="font-mono text-sm text-peat">
-      No analysis data found for this game. The game may still be in the analysis queue.
+{# ── Page hero ─────────────────────────────────────────────────────────── #}
+<div class="page-hero">
+  <div>
+    <h1>
+      {% if no_data %}
+        {{ game.white_username }} vs {{ game.black_username }}
+      {% else %}
+        {{ data.white_label }} vs {{ data.black_label }}
+      {% endif %}
+    </h1>
+    {% if not no_data %}
+    <p class="page-hero-sub">
+      {{ data.result }}{% if details %} · {{ details }}{% endif %}
     </p>
-    <p class="font-mono text-xs text-slate mt-2">Game: {{ game.id }}</p>
+    {% if opening_label %}
+    <p style="margin-top:.45rem;font-family:var(--font-mono);font-size:.65rem;
+              letter-spacing:.06em;color:var(--color-forest);display:inline-block;
+              border:1px solid var(--color-forest);padding:.2rem .55rem;">
+      {{ opening_label }}
+    </p>
+    {% endif %}
+    {% endif %}
   </div>
-
-  {# ── Board viewer + stat cards ─────────────────────────────────────────────── #}
-  {% else %}
-  <div class="mb-8">
-    {{ board_html|safe }}
+  <div class="flex gap-2 flex-wrap" style="align-self:flex-start;margin-top:.25rem;">
+    {% if not no_data %}
+    <a href="{{ flip_url }}" class="wc-btn">Flip Board</a>
+    {% endif %}
+    {% if chesscom_url %}
+    <a href="{{ chesscom_url }}" target="_blank" rel="noopener" class="wc-btn wc-btn-ghost">Chess.com ↗</a>
+    {% endif %}
+    <a href="{% url 'dashboard:index' %}" class="wc-btn wc-btn-ghost">← Dashboard</a>
   </div>
-
-  <div class="border-t-2 border-ebony pt-6 mt-6">
-    <h2 class="font-display text-xl text-forest mb-4">Engine Analysis</h2>
-    {{ stat_cards_html|safe }}
-  </div>
-  {% endif %}
-
 </div>
+
+{# ── No data state ─────────────────────────────────────────────────────── #}
+{% if no_data %}
+<div class="filter-panel">
+  <p class="font-mono text-sm text-peat">
+    No analysis data found for this game. The game may still be in the analysis queue.
+  </p>
+  <p class="font-mono text-xs text-slate" style="margin-top:.5rem;">Game: {{ game.id }}</p>
+</div>
+
+{# ── Board viewer + engine analysis ───────────────────────────────────── #}
+{% else %}
+<div style="margin-bottom:2rem;">
+  {{ board_html|safe }}
+</div>
+
+<div class="pg-section">
+  <div class="pg-head">
+    <span class="pg-title">Engine Analysis</span>
+  </div>
+  {{ stat_cards_html|safe }}
+</div>
+{% endif %}
+
 {% endblock %}

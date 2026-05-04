@@ -1,11 +1,13 @@
 {% if messages %}
-<div class="fixed top-4 left-1/2 -translate-x-1/2 z-50 space-y-2" id="flash-messages">
+<div class="fixed top-16 left-1/2 -translate-x-1/2 z-50 space-y-2 w-full max-w-md px-4"
+     id="flash-messages" style="pointer-events:none;">
   {% for message in messages %}
-  <div class="px-4 py-3 rounded shadow-lg text-sm font-mono
-    {% if message.tags == 'error' %}bg-red-100 text-red-800 border border-red-300
-    {% elif message.tags == 'success' %}bg-green-100 text-green-800 border border-green-300
-    {% elif message.tags == 'warning' %}bg-amber-100 text-amber-800 border border-amber-300
-    {% else %}bg-blue-100 text-blue-800 border border-blue-300{% endif %}">
+  <div class="flash-msg
+    {% if message.tags == 'error' %}flash-msg--error
+    {% elif message.tags == 'success' %}flash-msg--success
+    {% elif message.tags == 'warning' %}flash-msg--warning
+    {% else %}flash-msg--info{% endif %}"
+    style="pointer-events:auto;">
     {{ message }}
   </div>
   {% endfor %}

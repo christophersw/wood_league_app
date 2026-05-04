@@ -4,103 +4,86 @@
 {% block title %}Game Search — Wood League Chess{% endblock %}
 
 {% block content %}
-<div class="max-w-screen-xl mx-auto">
 
-  <div class="border-b-2 border-ebony pb-4 mb-6">
-    <h1 class="font-display text-2xl text-forest">Game Search</h1>
-    <p class="font-mono text-xs text-slate mt-1">Search games and preview openings.</p>
+<div class="page-hero">
+  <div>
+    <h1>Game Search</h1>
+    <p class="page-hero-sub">Search games and preview openings.</p>
   </div>
-
-  {# ── Mode tabs ─────────────────────────────────────────────────────────── #}
-  <div class="flex gap-0 border-b border-ebony mb-6" id="search-tabs">
-    <button
-      id="tab-ai"
-      class="search-tab font-mono text-xs uppercase tracking-wide px-5 py-2 border-b-2 border-ebony bg-ebony text-parchment"
-      onclick="switchTab('ai')"
-      {% if not ai_available %}disabled title="ANTHROPIC_API_KEY not configured"{% endif %}>
-      AI Search
-    </button>
-    <button
-      id="tab-kw"
-      class="search-tab font-mono text-xs uppercase tracking-wide px-5 py-2 border-b-2 border-transparent text-slate hover:text-forest"
-      onclick="switchTab('kw')">
-      Keyword
-    </button>
-  </div>
-
-  {# ── AI Search form ───────────────────────────────────────────────────── #}
-  <div id="panel-ai" class="search-panel">
-    {% if not ai_available %}
-    <p class="font-mono text-xs text-peat mb-4">ANTHROPIC_API_KEY not configured — AI search unavailable.</p>
-    {% endif %}
-    <form
-      hx-post="{% url 'search_ai_partial' %}"
-      hx-target="#search-results"
-      hx-indicator="#search-spinner"
-      class="flex gap-2 mb-4">
-      {% csrf_token %}
-      <input
-        type="text" name="query"
-        placeholder="e.g. last 30 days losses as black in sicilian openings"
-        class="flex-1 font-mono text-sm border border-ebony bg-parchment px-3 py-2 focus:outline-none focus:border-forest"
-        {% if not ai_available %}disabled{% endif %}>
-      <button
-        type="submit"
-        class="font-mono text-xs uppercase tracking-wide px-5 py-2 bg-ebony text-parchment hover:bg-forest transition-colors disabled:opacity-50"
-        {% if not ai_available %}disabled{% endif %}>
-        Search
-      </button>
-    </form>
-    <p class="font-mono text-xs text-slate">
-      Describe games in plain English — the app generates validated SQL and runs it.
-    </p>
-  </div>
-
-  {# ── Keyword Search form ──────────────────────────────────────────────── #}
-  <div id="panel-kw" class="search-panel hidden">
-    <form
-      hx-post="{% url 'search_keyword_partial' %}"
-      hx-target="#search-results"
-      hx-indicator="#search-spinner"
-      class="flex gap-2 mb-4">
-      {% csrf_token %}
-      <input
-        type="text" name="query"
-        placeholder="e.g. sicilian, 15+10, player name, opening"
-        class="flex-1 font-mono text-sm border border-ebony bg-parchment px-3 py-2 focus:outline-none focus:border-forest">
-      <button
-        type="submit"
-        class="font-mono text-xs uppercase tracking-wide px-5 py-2 bg-ebony text-parchment hover:bg-forest transition-colors">
-        Search
-      </button>
-    </form>
-    <p class="font-mono text-xs text-slate">
-      Searches player names, opening names, ECO codes, and time controls.
-    </p>
-  </div>
-
-  {# ── Spinner ──────────────────────────────────────────────────────────── #}
-  <div id="search-spinner" class="htmx-indicator font-mono text-xs text-slate py-2">
-    Searching…
-  </div>
-
-  {# ── Results area (HTMX target) ───────────────────────────────────────── #}
-  <div id="search-results"></div>
-
 </div>
 
+{# ── Mode tabs ─────────────────────────────────────────────────────────── #}
+<div class="tab-bar" id="search-tabs">
+  <button id="tab-ai"
+          class="tab-btn search-tab tab-btn--active"
+          onclick="switchTab('ai')"
+          {% if not ai_available %}disabled title="ANTHROPIC_API_KEY not configured"{% endif %}>
+    AI Search
+  </button>
+  <button id="tab-kw" class="tab-btn search-tab" onclick="switchTab('kw')">
+    Keyword
+  </button>
+</div>
+
+{# ── AI Search form ────────────────────────────────────────────────────── #}
+<div id="panel-ai" class="search-panel">
+  {% if not ai_available %}
+  <p style="font-family:var(--font-mono);font-size:.68rem;color:var(--color-peat);margin-bottom:.75rem;">
+    ANTHROPIC_API_KEY not configured — AI search unavailable.
+  </p>
+  {% endif %}
+  <form hx-post="{% url 'search_ai_partial' %}"
+        hx-target="#search-results"
+        hx-indicator="#search-spinner"
+        class="flex gap-2" style="margin-bottom:.75rem;">
+    {% csrf_token %}
+    <input type="text" name="query"
+           placeholder="e.g. last 30 days losses as black in sicilian openings"
+           class="wc-input" style="flex:1;"
+           {% if not ai_available %}disabled{% endif %}>
+    <button type="submit" class="wc-btn wc-btn-solid"
+            {% if not ai_available %}disabled{% endif %}>
+      Search
+    </button>
+  </form>
+  <p style="font-family:var(--font-mono);font-size:.65rem;color:var(--color-slate);">
+    Describe games in plain English — the app generates validated SQL and runs it.
+  </p>
+</div>
+
+{# ── Keyword Search form ───────────────────────────────────────────────── #}
+<div id="panel-kw" class="search-panel hidden">
+  <form hx-post="{% url 'search_keyword_partial' %}"
+        hx-target="#search-results"
+        hx-indicator="#search-spinner"
+        class="flex gap-2" style="margin-bottom:.75rem;">
+    {% csrf_token %}
+    <input type="text" name="query"
+           placeholder="e.g. sicilian, 15+10, player name, opening"
+           class="wc-input" style="flex:1;">
+    <button type="submit" class="wc-btn wc-btn-solid">Search</button>
+  </form>
+  <p style="font-family:var(--font-mono);font-size:.65rem;color:var(--color-slate);">
+    Searches player names, opening names, ECO codes, and time controls.
+  </p>
+</div>
+
+<div id="search-spinner" class="htmx-indicator"
+     style="font-family:var(--font-mono);font-size:.65rem;color:var(--color-peat);padding:.5rem 0;">
+  Searching…
+</div>
+
+<div id="search-results" style="margin-top:1.5rem;"></div>
+
+{% endblock %}
+
+{% block extra_js %}
 <script>
 function switchTab(mode) {
-  document.querySelectorAll('.search-tab').forEach(t => {
-    t.classList.remove('border-ebony', 'bg-ebony', 'text-parchment');
-    t.classList.add('border-transparent', 'text-slate');
-  });
+  document.querySelectorAll('.search-tab').forEach(t => t.classList.remove('tab-btn--active'));
   document.querySelectorAll('.search-panel').forEach(p => p.classList.add('hidden'));
-  const tab = document.getElementById('tab-' + mode);
-  const panel = document.getElementById('panel-' + mode);
-  tab.classList.remove('border-transparent', 'text-slate');
-  tab.classList.add('border-ebony', 'bg-ebony', 'text-parchment');
-  panel.classList.remove('hidden');
+  document.getElementById('tab-' + mode).classList.add('tab-btn--active');
+  document.getElementById('panel-' + mode).classList.remove('hidden');
   document.getElementById('search-results').innerHTML = '';
 }
 {% if not ai_available %}

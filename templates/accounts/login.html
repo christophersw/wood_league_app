@@ -1,29 +1,31 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sign In — Wood League Chess</title>
   <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
 </head>
-<body class="h-full bg-parchment flex items-center justify-center px-4">
+<body class="login-shell">
 
-  <div class="w-full max-w-sm">
-    <div class="text-center mb-8">
-      <h1 class="text-3xl font-display text-forest tracking-wide">Wood League</h1>
-      <p class="font-mono text-xs text-peat mt-1 uppercase tracking-widest">Chess Analytics</p>
+  <div class="login-card">
+
+    {# ── Masthead ──────────────────────────────────────────────────────── #}
+    <div class="login-masthead">
+      <span class="login-masthead-rule"></span>
+      <h1 class="login-masthead-title">Wood League</h1>
+      <p class="login-masthead-sub">Chess · Analytics</p>
     </div>
 
-    <div class="bg-cream border border-peat/20 rounded p-8 shadow-sm">
-      <h2 class="text-lg font-display text-ebony mb-6">Sign In</h2>
+    {# ── Form panel ────────────────────────────────────────────────────── #}
+    <div class="login-form-area">
+      <p class="login-form-title">Sign In</p>
 
       {% if messages %}
-      <div class="mb-4 space-y-2">
+      <div style="margin-bottom:1.25rem;">
         {% for message in messages %}
-        <p class="text-sm font-mono text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
-          {{ message }}
-        </p>
+        <div class="flash-msg flash-msg--error">{{ message }}</div>
         {% endfor %}
       </div>
       {% endif %}
@@ -31,34 +33,43 @@
       <form method="post" novalidate>
         {% csrf_token %}
 
-        <div class="mb-4">
-          <label for="{{ form.email.id_for_label }}"
-                 class="block text-xs font-mono uppercase tracking-wide text-peat mb-1">
-            Email
-          </label>
-          {{ form.email }}
+        <div style="margin-bottom:1rem;">
+          <label for="{{ form.email.id_for_label }}" class="wc-label">Email</label>
+          <input type="email"
+                 id="{{ form.email.id_for_label }}"
+                 name="{{ form.email.html_name }}"
+                 value="{{ form.email.value|default:'' }}"
+                 autocomplete="email"
+                 class="wc-input"
+                 placeholder="you@example.com">
           {% if form.email.errors %}
-          <p class="mt-1 text-xs text-red-600 font-mono">{{ form.email.errors|join:", " }}</p>
+          <p style="margin-top:.3rem;font-family:var(--font-mono);font-size:.62rem;color:var(--color-crimson);">
+            {{ form.email.errors|join:", " }}
+          </p>
           {% endif %}
         </div>
 
-        <div class="mb-6">
-          <label for="{{ form.password.id_for_label }}"
-                 class="block text-xs font-mono uppercase tracking-wide text-peat mb-1">
-            Password
-          </label>
-          {{ form.password }}
+        <div style="margin-bottom:1.5rem;">
+          <label for="{{ form.password.id_for_label }}" class="wc-label">Password</label>
+          <input type="password"
+                 id="{{ form.password.id_for_label }}"
+                 name="{{ form.password.html_name }}"
+                 autocomplete="current-password"
+                 class="wc-input">
           {% if form.password.errors %}
-          <p class="mt-1 text-xs text-red-600 font-mono">{{ form.password.errors|join:", " }}</p>
+          <p style="margin-top:.3rem;font-family:var(--font-mono);font-size:.62rem;color:var(--color-crimson);">
+            {{ form.password.errors|join:", " }}
+          </p>
           {% endif %}
         </div>
 
-        <button type="submit"
-                class="w-full bg-forest text-parchment font-mono text-sm uppercase tracking-widest py-2.5 rounded hover:bg-moss transition-colors">
+        <button type="submit" class="wc-btn wc-btn-solid"
+                style="width:100%;text-align:center;">
           Sign In
         </button>
       </form>
     </div>
+
   </div>
 
 </body>

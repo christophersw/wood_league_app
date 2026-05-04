@@ -36,7 +36,7 @@ def build_board_viewer_html(
     orientation: str = "white",
 ) -> str:
     """Return self-contained HTML+JS board viewer string for embedding with |safe."""
-    viewer_id = f"svg-{uuid4().hex}"
+    viewer_id = f"svg_{uuid4().hex}"
     game = chess.pgn.read_game(io.StringIO(data.pgn))
     if game is None:
         return "<p>Could not parse PGN.</p>"

@@ -31,10 +31,7 @@
         <td class="font-mono text-xs text-peat">{{ g.played_at|date:"d M Y" }}</td>
         <td>
           {% if g.slug %}
-          <a href="{% url 'games:analysis' g.slug %}"
-             class="inline-block border border-ebony text-forest font-mono text-xs uppercase tracking-wide px-3 py-1 hover:bg-ebony hover:text-parchment transition-colors">
-            Open
-          </a>
+          <a href="{% url 'games:analysis' g.slug %}" class="wc-btn">Open</a>
           {% endif %}
         </td>
       </tr>

@@ -6,6 +6,7 @@ whitenoise
 python-decouple
 django-tailwind-cli
 django-htmx
+dj-database-url
 
 # Chess / analysis
 python-chess>=1.999
