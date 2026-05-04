@@ -81,13 +81,19 @@
     <div style="display:flex;flex-direction:column;gap:12px;min-width:0;">
 
       {# Board loaded by HTMX on page load; reloaded on flip via htmx.ajax() #}
-      <div id="board-container"
-           hx-get="/_partials/games/{{ game.slug }}/board/?orientation={{ initial_perspective }}"
-           hx-trigger="load"
-           hx-swap="innerHTML">
-        <div style="height:520px;display:flex;align-items:center;justify-content:center;
-                    font-family:'DM Mono',monospace;font-size:.72rem;color:#8B3A2A;">
-          Loading board…
+      <div id="board-shell" style="position:relative;">
+        <div id="board-container"
+             hx-get="/_partials/games/{{ game.slug }}/board/?orientation={{ initial_perspective }}"
+             hx-trigger="load"
+             hx-swap="innerHTML"
+             hx-indicator="#board-loading-indicator">
+          <div style="height:520px;display:flex;align-items:center;justify-content:center;
+                      font-family:'DM Mono',monospace;font-size:.72rem;color:#8B3A2A;">
+            Loading board…
+          </div>
+        </div>
+        <div id="board-loading-indicator" aria-live="polite">
+          Updating board…
         </div>
       </div>
 
@@ -127,10 +133,47 @@
 {% block extra_js %}
 {% if not no_data %}
 
+<style>
+  #board-container {
+    transition: opacity .15s ease, filter .15s ease;
+  }
+
+  #board-loading-indicator {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(242,230,208,0.72);
+    backdrop-filter: blur(1px);
+    font-family: 'DM Mono', monospace;
+    font-size: .72rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #1A1A1A;
+    z-index: 2;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .15s ease, visibility .15s ease;
+  }
+
+  #board-shell.is-updating #board-container {
+    opacity: .35;
+    filter: grayscale(.35);
+  }
+
+  #board-shell.is-updating #board-loading-indicator,
+  #board-loading-indicator.htmx-request {
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+</style>
+
 {# JSON data embedded in page for chart and PGN rendering #}
-<script type="application/json" id="sf-eval-data">{{ sf_eval_json }}</script>
-<script type="application/json" id="lc0-wdl-data">{{ lc0_wdl_json }}</script>
-<script type="application/json" id="pgn-moves-data">{{ pgn_moves_json }}</script>
+<script type="application/json" id="sf-eval-data">{{ sf_eval_json|safe }}</script>
+<script type="application/json" id="lc0-wdl-data">{{ lc0_wdl_json|safe }}</script>
+<script type="application/json" id="pgn-moves-data">{{ pgn_moves_json|safe }}</script>
 
 <script src="{% static 'games/plySync.js' %}"></script>
 
@@ -151,6 +194,32 @@ WoodLeagueAnalysis.initFromUrl({
   defaultPerspective: "{{ initial_perspective }}",
 });
 
+(function () {
+  var boardShell = document.getElementById('board-shell');
+  var boardContainer = document.getElementById('board-container');
+  if (!boardShell || !boardContainer || typeof htmx === 'undefined') return;
+
+  function isBoardRequest(evt) {
+    return evt.detail && evt.detail.target === boardContainer;
+  }
+
+  document.body.addEventListener('htmx:beforeRequest', function (evt) {
+    if (isBoardRequest(evt)) boardShell.classList.add('is-updating');
+  });
+
+  document.body.addEventListener('htmx:afterSwap', function (evt) {
+    if (isBoardRequest(evt)) boardShell.classList.remove('is-updating');
+  });
+
+  document.body.addEventListener('htmx:responseError', function (evt) {
+    if (isBoardRequest(evt)) boardShell.classList.remove('is-updating');
+  });
+
+  document.body.addEventListener('htmx:sendError', function (evt) {
+    if (isBoardRequest(evt)) boardShell.classList.remove('is-updating');
+  });
+})();
+
 // Flip board: update perspective and reload board partial via HTMX
 function flipBoard() {
   var state = WoodLeagueAnalysis.getState();
@@ -158,7 +227,7 @@ function flipBoard() {
   WoodLeagueAnalysis.setPerspective(next);
   htmx.ajax('GET',
     '/_partials/games/{{ game.slug }}/board/?orientation=' + next,
-    { target: '#board-container', swap: 'innerHTML' }
+    { target: '#board-container', swap: 'innerHTML', indicator: '#board-loading-indicator' }
   );
 }
 </script>
@@ -315,16 +384,20 @@ function flipBoard() {
   var plies = wdlData.map(function (d) { return Number(d.ply); });
 
   function buildTraces(perspective) {
-    // Flip win/loss traces when viewing from black's perspective
-    var wins = wdlData.map(function (d) { return Number(perspective === 'white' ? d.wdl_win : d.wdl_loss) / 10; });
+    var isWhitePerspective = perspective === 'white';
+    var bottomWins = wdlData.map(function (d) { return Number(isWhitePerspective ? d.wdl_win : d.wdl_loss) / 10; });
     var draws = wdlData.map(function (d) { return Number(d.wdl_draw) / 10; });
-    var losses = wdlData.map(function (d) { return Number(perspective === 'white' ? d.wdl_loss : d.wdl_win) / 10; });
-    var topLabel = perspective === 'white' ? ('♙ ' + white + ' Win') : ('♟ ' + black + ' Win');
-    var botLabel = perspective === 'white' ? ('♟ ' + black + ' Win') : ('♙ ' + white + ' Win');
+    var topWins = wdlData.map(function (d) { return Number(isWhitePerspective ? d.wdl_loss : d.wdl_win) / 10; });
+    var bottomLabel = isWhitePerspective ? ('♙ ' + white + ' Win') : ('♟ ' + black + ' Win');
+    var topLabel = isWhitePerspective ? ('♟ ' + black + ' Win') : ('♙ ' + white + ' Win');
+    var bottomFill = isWhitePerspective ? 'rgba(242,230,208,0.90)' : 'rgba(26,26,26,0.85)';
+    var bottomLine = isWhitePerspective ? '#D4C4A0' : '#1A1A1A';
+    var topFill = isWhitePerspective ? 'rgba(26,26,26,0.85)' : 'rgba(242,230,208,0.90)';
+    var topLine = isWhitePerspective ? '#1A1A1A' : '#D4C4A0';
     return [
-      { x: plies, y: wins, name: topLabel, type: 'scatter', mode: 'lines', stackgroup: 'wdl', fill: 'tozeroy', fillcolor: 'rgba(242,230,208,0.90)', line: { color: '#D4C4A0', width: 1.5 }, hovertemplate: topLabel + ': %{y:.1f}%<extra></extra>' },
+      { x: plies, y: bottomWins, name: bottomLabel, type: 'scatter', mode: 'lines', stackgroup: 'wdl', fill: 'tozeroy', fillcolor: bottomFill, line: { color: bottomLine, width: 1.5 }, hovertemplate: bottomLabel + ': %{y:.1f}%<extra></extra>' },
       { x: plies, y: draws, name: 'Draw', type: 'scatter', mode: 'lines', stackgroup: 'wdl', fill: 'tonexty', fillcolor: 'rgba(139,58,42,0.50)', line: { color: '#8B3A2A', width: 1 }, hovertemplate: 'Draw: %{y:.1f}%<extra></extra>' },
-      { x: plies, y: losses, name: botLabel, type: 'scatter', mode: 'lines', stackgroup: 'wdl', fill: 'tonexty', fillcolor: 'rgba(26,26,26,0.85)', line: { color: '#1A1A1A', width: 1.5 }, hovertemplate: botLabel + ': %{y:.1f}%<extra></extra>' },
+      { x: plies, y: topWins, name: topLabel, type: 'scatter', mode: 'lines', stackgroup: 'wdl', fill: 'tonexty', fillcolor: topFill, line: { color: topLine, width: 1.5 }, hovertemplate: topLabel + ': %{y:.1f}%<extra></extra>' },
     ];
   }
 
@@ -359,6 +432,9 @@ function flipBoard() {
         Plotly.restyle(wdlDiv, {
           y: [newTraces[0].y, newTraces[1].y, newTraces[2].y],
           name: [newTraces[0].name, newTraces[1].name, newTraces[2].name],
+          fillcolor: [newTraces[0].fillcolor, newTraces[1].fillcolor, newTraces[2].fillcolor],
+          'line.color': [newTraces[0].line.color, newTraces[1].line.color, newTraces[2].line.color],
+          hovertemplate: [newTraces[0].hovertemplate, newTraces[1].hovertemplate, newTraces[2].hovertemplate],
         }, [0, 1, 2]);
       });
     });

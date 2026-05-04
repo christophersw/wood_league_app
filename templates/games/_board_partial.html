@@ -2,10 +2,10 @@
 <div id="board-inner" style="display:flex;flex-direction:column;gap:0;">
 
   {# JSON data containers — read by JS below, not executed #}
-  <script type="application/json" id="board-frames-json">{{ frames_json }}</script>
-  <script type="application/json" id="board-arrows-json">{{ arrow_labels_json }}</script>
-  <script type="application/json" id="board-san-json">{{ san_list_json }}</script>
-  <script type="application/json" id="board-isbest-json">{{ is_best_json }}</script>
+  <script type="application/json" id="board-frames-json">{{ frames_json|safe }}</script>
+  <script type="application/json" id="board-arrows-json">{{ arrow_labels_json|safe }}</script>
+  <script type="application/json" id="board-san-json">{{ san_list_json|safe }}</script>
+  <script type="application/json" id="board-isbest-json">{{ is_best_json|safe }}</script>
 
   {# Top player label #}
   <div class="player-label">
