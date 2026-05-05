@@ -3,7 +3,7 @@
 
   {# JSON data containers — read by JS below, not executed #}
   <script type="application/json" id="board-frames-json">{{ frames_json|safe }}</script>
-  <script type="application/json" id="board-arrows-json">{{ arrow_labels_json|safe }}</script>
+  <script type="application/json" id="board-arrows-json">{{ arrow_data_json|safe }}</script>
   <script type="application/json" id="board-san-json">{{ san_list_json|safe }}</script>
   <script type="application/json" id="board-isbest-json">{{ is_best_json|safe }}</script>
 
@@ -14,7 +14,17 @@
   </div>
 
   {# Board SVG container #}
-  <div class="board-wrap" id="board-svg-wrap"></div>
+  <div class="board-wrap">
+    <div class="board-stage">
+      <div class="board-svg-layer" id="board-svg-wrap"></div>
+      <svg
+        id="board-arrow-overlay"
+        class="board-arrow-overlay"
+        viewBox="0 0 {{ overlay_viewbox_size }} {{ overlay_viewbox_size }}"
+        aria-label="Engine analysis arrows"
+      ></svg>
+    </div>
+  </div>
 
   {# Bottom player label #}
   <div class="player-label" style="border-bottom:2.5px solid #1A1A1A;border-top:1px solid #1A1A1A;">
@@ -59,8 +69,14 @@
 .player-label{display:flex;align-items:center;justify-content:space-between;border-top:2.5px solid #1A1A1A;border-bottom:1px solid #1A1A1A;padding:5px 4px;}
 .player-side{font-family:'DM Mono',monospace;font-size:.65rem;letter-spacing:.12em;text-transform:uppercase;color:#8B3A2A;}
 .player-name{font-family:Georgia,serif;font-size:.95rem;font-weight:600;color:#1A1A1A;letter-spacing:.02em;}
-.board-wrap{border-left:2px solid #1A1A1A;border-right:2px solid #1A1A1A;}
-.board-wrap svg{display:block;margin:0 auto;}
+.board-wrap{border-left:2px solid #1A1A1A;border-right:2px solid #1A1A1A;display:flex;justify-content:center;}
+.board-stage{position:relative;width:480px;max-width:100%;}
+.board-svg-layer svg{display:block;width:100%;height:auto;}
+.board-arrow-overlay{position:absolute;inset:0;width:100%;height:100%;display:block;}
+.board-arrow-group{cursor:pointer;outline:none;}
+.board-arrow-visible{transition:filter .12s ease, opacity .12s ease;}
+.board-arrow-group:hover .board-arrow-visible,
+.board-arrow-group:focus .board-arrow-visible{filter:brightness(1.12);}
 .board-controls{display:flex;align-items:center;gap:5px;padding:8px 0 6px;justify-content:center;border-top:1px solid #D4C4A0;flex-wrap:wrap;}
 .board-btn{background:transparent;color:#1A1A1A;border:1.5px solid #1A1A1A;border-radius:0;padding:4px 10px;cursor:pointer;font-family:'DM Mono',monospace;font-size:.85rem;min-width:32px;transition:background .15s,color .15s;}
 .board-btn:hover{background:#1A1A1A;color:#F2E6D0;}
@@ -71,13 +87,17 @@
 
 <script>
 (function () {
+  var SVG_NS = 'http://www.w3.org/2000/svg';
   var frames = JSON.parse(document.getElementById('board-frames-json').textContent);
-  var arrowLabels = JSON.parse(document.getElementById('board-arrows-json').textContent);
-  var sanList = JSON.parse(document.getElementById('board-san-json').textContent);
-  var isBestMap = JSON.parse(document.getElementById('board-isbest-json').textContent);
+  var arrowsByPly = JSON.parse(document.getElementById('board-arrows-json').textContent);
+  var boardOrientation = '{{ orientation }}';
+  var overlayViewboxSize = parseFloat('{{ overlay_viewbox_size }}');
+  var overlayBoardMargin = parseFloat('{{ overlay_board_margin }}');
+  var overlaySquareSize = parseFloat('{{ overlay_square_size }}');
   var totalFrames = frames.length;
 
   var svgWrap = document.getElementById('board-svg-wrap');
+  var arrowOverlay = document.getElementById('board-arrow-overlay');
   var slider = document.getElementById('board-slider');
   var plyLabel = document.getElementById('board-ply-label');
   var btnStart = document.getElementById('board-btn-start');
@@ -94,28 +114,238 @@
     window.WoodLeagueAnalysis.setTotalPlies(totalFrames - 1);
   }
 
-  function applyArrowVisibility() {
+  /**
+   * Return the current engine-visibility settings from the board toggle UI.
+   *
+   * @returns Object with showSF and showLc0 booleans.
+   */
+  function getArrowVisibilityState() {
     {% if not no_arrows %}
     var sfToggle = document.getElementById('board-sf-toggle');
     var lc0Toggle = document.getElementById('board-lc0-toggle');
-    var showSF = sfToggle ? sfToggle.checked : true;
-    var showLc0 = lc0Toggle ? lc0Toggle.checked : true;
-    
-    // Hide/show arrows
-    svgWrap.querySelectorAll('line[stroke*="D4A843"],polygon[fill*="D4A843"]').forEach(function (el) {
-      el.style.display = showSF ? '' : 'none';
-    });
-    svgWrap.querySelectorAll('line[stroke*="4A6E8A"],polygon[fill*="4A6E8A"]').forEach(function (el) {
-      el.style.display = showLc0 ? '' : 'none';
-    });
+    return {
+      showSF: sfToggle ? sfToggle.checked : true,
+      showLc0: lc0Toggle ? lc0Toggle.checked : true,
+    };
+    {% else %}
+    return { showSF: true, showLc0: true };
     {% endif %}
+  }
+
+  /**
+   * Hide or show rendered overlay arrows based on the current engine toggles.
+   */
+  function applyArrowVisibility() {
+    var visibility = getArrowVisibilityState();
+    arrowOverlay.querySelectorAll('[data-engine="sf"]').forEach(function (element) {
+      element.style.display = visibility.showSF ? '' : 'none';
+    });
+    arrowOverlay.querySelectorAll('[data-engine="lc0"]').forEach(function (element) {
+      element.style.display = visibility.showLc0 ? '' : 'none';
+    });
   }
   window.boardApplyArrowVisibility = applyArrowVisibility;
 
+  /**
+   * Convert an algebraic square into overlay coordinates for the active orientation.
+   *
+   * @param {string} square - Algebraic square such as "e4".
+   * @returns Overlay point object or null.
+   */
+  function squareToPoint(square) {
+    if (!square || square.length < 2) {
+      return null;
+    }
+
+    var fileIndex = square.charCodeAt(0) - 97;
+    var rankIndex = parseInt(square.charAt(1), 10) - 1;
+    if (isNaN(fileIndex) || isNaN(rankIndex) || fileIndex < 0 || fileIndex > 7 || rankIndex < 0 || rankIndex > 7) {
+      return null;
+    }
+
+    if (boardOrientation === 'black') {
+      fileIndex = 7 - fileIndex;
+      rankIndex = 7 - rankIndex;
+    }
+
+    return {
+      x: overlayBoardMargin + ((fileIndex + 0.5) * overlaySquareSize),
+      y: overlayBoardMargin + ((7.5 - rankIndex) * overlaySquareSize),
+    };
+  }
+
+  /**
+   * Build the shaft and arrowhead geometry for a rendered overlay arrow.
+   *
+   * @param {Object} fromPoint - Start square center.
+   * @param {Object} toPoint - End square center.
+   * @param {number} strokeWidth - Visible shaft width.
+   * @returns {object|null}
+   */
+  function buildArrowGeometry(fromPoint, toPoint, strokeWidth) {
+    var deltaX = toPoint.x - fromPoint.x;
+    var deltaY = toPoint.y - fromPoint.y;
+    var distance = Math.sqrt((deltaX * deltaX) + (deltaY * deltaY));
+    if (!distance) {
+      return null;
+    }
+
+    var unitX = deltaX / distance;
+    var unitY = deltaY / distance;
+    var headLength = Math.max(13, strokeWidth * 2.0);
+    var headWidth = Math.max(12, strokeWidth * 1.7);
+    var shaftEndX = toPoint.x - (unitX * headLength);
+    var shaftEndY = toPoint.y - (unitY * headLength);
+    var perpendicularX = -unitY;
+    var perpendicularY = unitX;
+    var leftPointX = shaftEndX + (perpendicularX * (headWidth / 2));
+    var leftPointY = shaftEndY + (perpendicularY * (headWidth / 2));
+    var rightPointX = shaftEndX - (perpendicularX * (headWidth / 2));
+    var rightPointY = shaftEndY - (perpendicularY * (headWidth / 2));
+
+    return {
+      shaftEndX: shaftEndX,
+      shaftEndY: shaftEndY,
+      headPoints: [
+        toPoint.x.toFixed(2) + ',' + toPoint.y.toFixed(2),
+        leftPointX.toFixed(2) + ',' + leftPointY.toFixed(2),
+        rightPointX.toFixed(2) + ',' + rightPointY.toFixed(2)
+      ].join(' '),
+    };
+  }
+
+  /**
+   * Create a single interactive SVG arrow group from server-provided metadata.
+   *
+   * @param {object} arrowData - Serialized metadata for one engine move.
+   * @param {number} ply - Current board ply for the rendered overlay.
+   * @returns {SVGGElement|null}
+   */
+  function buildArrowElement(arrowData, ply) {
+    var fromPoint = squareToPoint(arrowData.from_sq);
+    var toPoint = squareToPoint(arrowData.to_sq);
+    if (!fromPoint || !toPoint) {
+      return null;
+    }
+
+    var strokeWidth = Number(arrowData.stroke_width || 7);
+    var geometry = buildArrowGeometry(fromPoint, toPoint, strokeWidth);
+    if (!geometry) {
+      return null;
+    }
+
+    var group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('class', 'board-arrow-group');
+    group.setAttribute('data-engine', arrowData.engine || '');
+    group.setAttribute('data-move-uci', arrowData.move_uci || '');
+    group.setAttribute('data-tier', String(arrowData.tier || 1));
+    group.setAttribute('data-ply', String(ply));
+    group.setAttribute('tabindex', '0');
+    group.setAttribute('focusable', 'true');
+    group.setAttribute('role', 'button');
+    group.setAttribute('aria-label', arrowData.title || 'Engine continuation');
+
+    var title = document.createElementNS(SVG_NS, 'title');
+    title.textContent = arrowData.title || 'Engine continuation';
+    group.appendChild(title);
+
+    var hitbox = document.createElementNS(SVG_NS, 'line');
+    hitbox.setAttribute('class', 'board-arrow-hitbox');
+    hitbox.setAttribute('x1', fromPoint.x);
+    hitbox.setAttribute('y1', fromPoint.y);
+    hitbox.setAttribute('x2', toPoint.x);
+    hitbox.setAttribute('y2', toPoint.y);
+    hitbox.setAttribute('stroke', 'transparent');
+    hitbox.setAttribute('stroke-width', Math.max(strokeWidth + 16, 22));
+    hitbox.setAttribute('stroke-linecap', 'round');
+    group.appendChild(hitbox);
+
+    var shaft = document.createElementNS(SVG_NS, 'line');
+    shaft.setAttribute('class', 'board-arrow-visible board-arrow-shaft');
+    shaft.setAttribute('x1', fromPoint.x);
+    shaft.setAttribute('y1', fromPoint.y);
+    shaft.setAttribute('x2', geometry.shaftEndX);
+    shaft.setAttribute('y2', geometry.shaftEndY);
+    shaft.setAttribute('stroke', arrowData.color || '#D4A843');
+    shaft.setAttribute('stroke-opacity', Number(arrowData.opacity || 0.7));
+    shaft.setAttribute('stroke-width', strokeWidth);
+    shaft.setAttribute('stroke-linecap', 'round');
+    group.appendChild(shaft);
+
+    var head = document.createElementNS(SVG_NS, 'polygon');
+    head.setAttribute('class', 'board-arrow-visible board-arrow-head');
+    head.setAttribute('points', geometry.headPoints);
+    head.setAttribute('fill', arrowData.color || '#D4A843');
+    head.setAttribute('fill-opacity', Number(arrowData.opacity || 0.7));
+    group.appendChild(head);
+
+    return group;
+  }
+
+  /**
+   * Walk up from the event target to find the containing arrow group.
+   *
+   * @param {EventTarget|null} target - Native event target.
+   * @returns {Element|null}
+   */
+  function findArrowGroup(target) {
+    var node = target;
+    while (node && node !== arrowOverlay) {
+      if (node.nodeType === 1 && node.hasAttribute('data-move-uci')) {
+        return node;
+      }
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  /**
+   * Open the Engine Lines continuation for the clicked overlay arrow.
+   *
+   * @param {Element} arrowGroup - Rendered arrow group with data attributes.
+   */
+  function openArrowContinuation(arrowGroup) {
+    if (!arrowGroup || !window.WoodLeagueEngineLines || typeof window.WoodLeagueEngineLines.openArrowLine !== 'function') {
+      return;
+    }
+
+    window.WoodLeagueEngineLines.openArrowLine({
+      ply: parseInt(arrowGroup.getAttribute('data-ply'), 10) || 0,
+      moveUci: arrowGroup.getAttribute('data-move-uci') || '',
+      engine: arrowGroup.getAttribute('data-engine') || 'sf',
+      tier: parseInt(arrowGroup.getAttribute('data-tier'), 10) || 1,
+    });
+  }
+
+  /**
+   * Render the dedicated overlay SVG for the requested ply.
+   *
+   * @param {number} ply - Current board ply.
+   */
+  function renderArrowOverlay(ply) {
+    arrowOverlay.setAttribute('viewBox', '0 0 ' + overlayViewboxSize + ' ' + overlayViewboxSize);
+    arrowOverlay.innerHTML = '';
+
+    var arrowsForPly = arrowsByPly[String(ply)] || [];
+    arrowsForPly.forEach(function (arrowData) {
+      var arrowElement = buildArrowElement(arrowData, ply);
+      if (arrowElement) {
+        arrowOverlay.appendChild(arrowElement);
+      }
+    });
+
+    applyArrowVisibility();
+  }
+
+  /**
+   * Render the board frame and its overlay arrows for the requested ply.
+   *
+   * @param {number} ply - Current board ply.
+   */
   function renderPly(ply) {
     ply = Math.max(0, Math.min(totalFrames - 1, ply));
     svgWrap.innerHTML = frames[ply];
-    applyArrowVisibility();
+    renderArrowOverlay(ply);
     slider.value = ply;
     if (ply === 0) {
       plyLabel.textContent = 'Start';
@@ -125,6 +355,32 @@
       plyLabel.textContent = moveNum + dots + ' (ply ' + ply + ')';
     }
   }
+
+  arrowOverlay.addEventListener('click', function (event) {
+    var arrowGroup = findArrowGroup(event.target);
+    if (!arrowGroup) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    openArrowContinuation(arrowGroup);
+  });
+
+  arrowOverlay.addEventListener('keydown', function (event) {
+    var arrowGroup = findArrowGroup(event.target);
+    if (!arrowGroup) {
+      return;
+    }
+
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    openArrowContinuation(arrowGroup);
+  });
 
   // Subscribe to plySync state changes
   var unsubscribe = null;

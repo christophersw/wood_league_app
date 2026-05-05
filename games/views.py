@@ -268,7 +268,7 @@ def board_partial(request: HttpRequest, slug: str) -> HttpResponse:
         "slug": slug,
         "orientation": orientation,
         "frames_json": json.dumps(board_data["frames"]),
-        "arrow_labels_json": json.dumps(board_data["arrow_labels_by_ply"]),
+        "arrow_data_json": json.dumps(board_data["arrows_by_ply"]),
         "san_list_json": json.dumps(board_data["san_list"]),
         "is_best_json": json.dumps(is_best_map),
         "total_frames": board_data["total_frames"],
@@ -280,6 +280,9 @@ def board_partial(request: HttpRequest, slug: str) -> HttpResponse:
         "bottom_side": board_data["bottom_side"],
         "has_sf": board_data["has_sf"],
         "has_lc0": board_data["has_lc0"],
+        "overlay_viewbox_size": board_data["overlay_geometry"]["viewbox_size"],
+        "overlay_board_margin": board_data["overlay_geometry"]["board_margin"],
+        "overlay_square_size": board_data["overlay_geometry"]["square_size"],
         "no_arrows": False,
     })
 
@@ -342,18 +345,25 @@ def engine_line_partial(request: HttpRequest, slug: str) -> HttpResponse:
     moves_list = list(game_obj.mainline_moves())
 
     # Play moves up to the specified ply
+    # ply is 1-indexed from board_builder (ply 1 = after move 1)
+    # To reach ply N, we need to play moves 0 to N-1 in the moves_list
     moves_played_in_continuation = []
+    print(f"[DEBUG] engine_line_partial: reconstructing to ply {ply}, total moves: {len(moves_list)}")
     for i, move in enumerate(moves_list):
         if i >= ply:
             break
         board.push(move)
+        print(f"[DEBUG] Pushed move {i}: {move.uci()}")
 
+    print(f"[DEBUG] Board after {ply} moves: {board.fen()}")
     # Play the clicked move
     try:
         clicked_move = board.parse_uci(move_uci)
         board.push(clicked_move)
         moves_played_in_continuation.append(clicked_move)
-    except (ValueError, AssertionError):
+        print(f"[DEBUG] Played clicked move: {move_uci} (in position {board.fen()})")
+    except (ValueError, AssertionError) as e:
+        print(f"[DEBUG] Failed to play {move_uci}: {e}")
         return HttpResponse("Invalid move_uci for position", status=400)
 
     # Collect continuation moves from the game if they exist after this ply

@@ -11,7 +11,7 @@ Changelog:
 
 from django.test import TestCase
 
-from games.board_builder import _build_tier_map, _inject_arrow_labels, build_board_frames
+from games.board_builder import _build_tier_map, build_board_frames
 from games.services import GameAnalysisData, MoveRow
 from games.stat_cards import (
     _acc_color, _bar_row, _quality_row, _rerun_button,
@@ -202,44 +202,29 @@ class BuildTierMapTest(TestCase):
         result = _build_tier_map({1: row}, use_cp_equiv=False)
         self.assertNotIn(1, result)
 
-    def test_uses_cp_equiv_when_flag_set(self):
-        """_build_tier_map uses cp_equiv for score when use_cp_equiv=True."""
-        row = MoveRow(ply=1, san="e4", fen="", arrow_uci="e2e4", cp_equiv=150.0, arrow_score_1=30.0)
+    def test_uses_cp_equiv_as_primary_fallback(self):
+        """_build_tier_map backfills the first score from cp_equiv when needed."""
+        row = MoveRow(ply=1, san="e4", fen="", arrow_uci="e2e4", cp_equiv=150.0)
         result = _build_tier_map({1: row}, use_cp_equiv=True)
         self.assertEqual(result[1][0]["score"], 150.0)
 
-
-# ---------------------------------------------------------------------------
-# _inject_arrow_labels
-# ---------------------------------------------------------------------------
-
-class InjectArrowLabelsTest(TestCase):
-    """Tests for _inject_arrow_labels SVG injection."""
-
-    def _make_svg(self) -> str:
-        """Return a minimal SVG string."""
-        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480"></svg>'
-
-    def test_returns_svg_unchanged_for_empty_labels(self):
-        """_inject_arrow_labels returns the SVG unchanged when labels list is empty."""
-        svg = self._make_svg()
-        result = _inject_arrow_labels(svg, [], 480, False)
-        self.assertEqual(result, svg)
-
-    def test_injects_text_element(self):
-        """_inject_arrow_labels adds a <text> element to the SVG."""
-        svg = self._make_svg()
-        labels = [{"engine": "sf", "label": "+30", "from_sq": "e2", "to_sq": "e4"}]
-        result = _inject_arrow_labels(svg, labels, 480, False)
-        self.assertIn("<text", result)
-        self.assertIn("+30", result)
-
-    def test_handles_invalid_square_gracefully(self):
-        """_inject_arrow_labels skips labels with invalid square coordinates."""
-        svg = self._make_svg()
-        labels = [{"engine": "sf", "label": "+30", "from_sq": "", "to_sq": ""}]
-        result = _inject_arrow_labels(svg, labels, 480, False)
-        self.assertNotIn("<text", result)
+    def test_preserves_secondary_scores_for_lc0(self):
+        """_build_tier_map keeps tier-two and tier-three scores for Lc0 arrows."""
+        row = MoveRow(
+            ply=1,
+            san="e4",
+            fen="",
+            arrow_uci="e2e4",
+            arrow_uci_2="d2d4",
+            arrow_uci_3="g1f3",
+            cp_equiv=150.0,
+            arrow_score_2=110.0,
+            arrow_score_3=80.0,
+        )
+        result = _build_tier_map({1: row}, use_cp_equiv=True)
+        self.assertEqual(result[1][0]["score"], 150.0)
+        self.assertEqual(result[1][1]["score"], 110.0)
+        self.assertEqual(result[1][2]["score"], 80.0)
 
 
 # ---------------------------------------------------------------------------
@@ -253,8 +238,8 @@ class BuildBoardFramesTest(TestCase):
         """build_board_frames returns a dict with all required keys."""
         data = _minimal_data()
         result = build_board_frames(data, size=480, orientation="white")
-        for key in ["frames", "arrow_labels_by_ply", "san_list", "total_frames",
-                    "top_player", "bottom_player", "has_sf", "has_lc0"]:
+        for key in ["frames", "arrows_by_ply", "san_list", "total_frames",
+                    "top_player", "bottom_player", "has_sf", "has_lc0", "overlay_geometry"]:
             self.assertIn(key, result)
 
     def test_frame_count_equals_moves_plus_one(self):
@@ -282,6 +267,43 @@ class BuildBoardFramesTest(TestCase):
         data = _minimal_data()
         result = build_board_frames(data, size=480, orientation="white")
         self.assertTrue(result["frames"][0].startswith("<svg"))
+
+    def test_returns_clickable_arrow_metadata(self):
+        """build_board_frames returns per-ply overlay metadata for suggested moves."""
+        move_with_tiers = MoveRow(
+            ply=1,
+            san="e4",
+            fen=MOVE_E4.fen,
+            cp_eval=30,
+            arrow_uci="e2e4",
+            arrow_uci_2="d2d4",
+            arrow_uci_3="g1f3",
+            arrow_score_1=60.0,
+            arrow_score_2=35.0,
+            arrow_score_3=10.0,
+            classification="best",
+        )
+        data = _minimal_data(moves=[move_with_tiers, MOVE_E5, MOVE_NF3, MOVE_NC6], white_accuracy=85.0)
+
+        result = build_board_frames(data, size=480, orientation="white")
+
+        self.assertIn(1, result["arrows_by_ply"])
+        self.assertEqual(len(result["arrows_by_ply"][1]), 3)
+        first_arrow = result["arrows_by_ply"][1][0]
+        self.assertEqual(first_arrow["move_uci"], "e2e4")
+        self.assertEqual(first_arrow["engine"], "sf")
+        self.assertEqual(first_arrow["tier"], 1)
+        self.assertIn("opacity", first_arrow)
+        self.assertIn("stroke_width", first_arrow)
+
+    def test_overlay_geometry_matches_board_size(self):
+        """build_board_frames exposes board-overlay geometry for the client renderer."""
+        data = _minimal_data()
+        result = build_board_frames(data, size=480, orientation="white")
+        geometry = result["overlay_geometry"]
+        self.assertEqual(geometry["viewbox_size"], 390.0)
+        self.assertEqual(geometry["board_margin"], 15.0)
+        self.assertEqual(geometry["square_size"], 45.0)
 
     def test_returns_only_start_frame_for_pgn_with_no_moves(self):
         """build_board_frames returns only the start-position frame when PGN has no moves."""

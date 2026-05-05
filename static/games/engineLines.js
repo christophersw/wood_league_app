@@ -2,9 +2,11 @@
  * Title: engineLines.js — Engine Lines board management and interaction
  * Description:
  *   Manages the Engine Lines board (continuation display) with separate ply sync,
- *   perspective sharing with main board, and arrow click handlers for loading continuations.
+ *   perspective sharing with the main board, and continuation loading from
+ *   clickable engine-arrow metadata rendered on the main analysis board.
  *
  * Changelog:
+ *   2026-05-05 (#16): Replaced fragile DOM rebinding with metadata-driven arrow loading
  *   2026-05-XX: Created for Engine Lines board feature
  */
 
@@ -76,6 +78,13 @@
 
       // Reset ply when loading new line
       _engineLinesPly = 0;
+      _currentEngineLineData = {
+        slug: slug,
+        ply: ply,
+        uci: moveUCI,
+        engine: engine,
+        tier: tier,
+      };
 
       var url = '/_partials/games/' + slug + '/engine-line/?ply=' + ply +
                 '&move_uci=' + encodeURIComponent(moveUCI) +
@@ -105,99 +114,27 @@
         });
       }
     },
+
+    /**
+     * Open a continuation from the main-board arrow metadata payload.
+     *
+     * @param {{ply: number, moveUci: string, engine: string, tier: number}} arrowData
+     */
+    openArrowLine: function (arrowData) {
+      var slug = window.ANALYSIS_DATA && window.ANALYSIS_DATA.slug ? window.ANALYSIS_DATA.slug : '';
+      if (!slug || !arrowData || !arrowData.moveUci) {
+        return;
+      }
+
+      window.WoodLeagueEngineLines.loadEngineLine(
+        slug,
+        parseInt(arrowData.ply, 10) || 0,
+        arrowData.moveUci,
+        arrowData.engine || 'sf',
+        parseInt(arrowData.tier, 10) || 1
+      );
+    },
   };
-
-  /**
-   * Initialize arrow click handlers on the main board.
-   * Called after main board is loaded.
-   */
-  window.initializeEngineLineArrowHandlers = function () {
-    var boardSvgWrap = document.getElementById('board-svg-wrap');
-    if (!boardSvgWrap) return;
-
-    // Remove existing listeners if any
-    var arrowElements = boardSvgWrap.querySelectorAll('line[data-arrow-index], polygon[data-arrow-index]');
-    arrowElements.forEach(function (el) {
-      // Create a new element to remove all listeners
-      var newEl = el.cloneNode(true);
-      el.parentNode.replaceChild(newEl, el);
-    });
-
-    // Re-query after cloning
-    arrowElements = boardSvgWrap.querySelectorAll('line[data-arrow-index], polygon[data-arrow-index]');
-    
-    arrowElements.forEach(function (el) {
-      el.style.cursor = 'pointer';
-      
-      el.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Extract arrow metadata from the element
-        var arrowIndex = el.getAttribute('data-arrow-index');
-        if (arrowIndex === null) return;
-
-        // Get arrow labels to find engine, move, and tier
-        var arrowLabelsEl = document.getElementById('board-arrows-json');
-        if (!arrowLabelsEl) return;
-
-        try {
-          var arrowLabels = JSON.parse(arrowLabelsEl.textContent);
-          var currentPly = window.WoodLeagueAnalysis ? window.WoodLeagueAnalysis.getState().ply : 0;
-
-          var labelForPly = arrowLabels[currentPly];
-          if (!labelForPly || !labelForPly[arrowIndex]) return;
-
-          var arrowData = labelForPly[arrowIndex];
-          var engine = arrowData.engine || 'sf';
-          var uci = arrowData.uci || '';
-          
-          // Determine tier based on arrow index (0=tier1, 1=tier2, 2=tier3)
-          var tier = parseInt(arrowIndex) + 1;
-          if (tier > 3) tier = 3;
-
-          if (!uci) return;
-
-          var slug = window.ANALYSIS_DATA && window.ANALYSIS_DATA.slug ? 
-                     window.ANALYSIS_DATA.slug : null;
-          if (!slug) return;
-
-          // Load the engine line continuation
-          window.WoodLeagueEngineLines.loadEngineLine(slug, currentPly, uci, engine, tier);
-        } catch (e) {
-          console.error('Error loading engine line:', e);
-        }
-      });
-
-      // Add hover feedback
-      el.addEventListener('mouseenter', function () {
-        el.style.opacity = '0.8';
-        el.style.filter = 'brightness(1.2)';
-      });
-
-      el.addEventListener('mouseleave', function () {
-        el.style.opacity = '';
-        el.style.filter = '';
-      });
-    });
-  };
-
-  /**
-   * Handle board partial updates to re-attach arrow handlers.
-   */
-  document.addEventListener('htmx:afterSettle', function (evt) {
-    if (evt.detail && evt.detail.target && evt.detail.target.id === 'board-container') {
-      // Main board was updated, re-initialize arrow handlers
-      setTimeout(window.initializeEngineLineArrowHandlers, 50);
-    }
-  });
-
-  /**
-   * Also initialize on page load.
-   */
-  document.addEventListener('DOMContentLoaded', function () {
-    setTimeout(window.initializeEngineLineArrowHandlers, 100);
-  });
 
   /**
    * Mirror perspective from main board to Engine Lines board.
