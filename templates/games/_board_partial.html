@@ -77,6 +77,8 @@
 .board-arrow-visible{transition:filter .12s ease, opacity .12s ease;}
 .board-arrow-group:hover .board-arrow-visible,
 .board-arrow-group:focus .board-arrow-visible{filter:brightness(1.12);}
+.board-arrow-label-box,
+.board-arrow-label-text{pointer-events:none;}
 .board-controls{display:flex;align-items:center;gap:5px;padding:8px 0 6px;justify-content:center;border-top:1px solid #D4C4A0;flex-wrap:wrap;}
 .board-btn{background:transparent;color:#1A1A1A;border:1.5px solid #1A1A1A;border-radius:0;padding:4px 10px;cursor:pointer;font-family:'DM Mono',monospace;font-size:.85rem;min-width:32px;transition:background .15s,color .15s;}
 .board-btn:hover{background:#1A1A1A;color:#F2E6D0;}
@@ -88,6 +90,7 @@
 <script>
 (function () {
   var SVG_NS = 'http://www.w3.org/2000/svg';
+  var SAME_ORIGIN_ARROW_SPACING = 9;
   var frames = JSON.parse(document.getElementById('board-frames-json').textContent);
   var arrowsByPly = JSON.parse(document.getElementById('board-arrows-json').textContent);
   var boardOrientation = '{{ orientation }}';
@@ -175,6 +178,47 @@
   }
 
   /**
+   * Offset an arrow into a parallel lane so same-origin suggestions remain distinct.
+   *
+   * @param {Object} fromPoint - Original start square center.
+   * @param {Object} toPoint - Original end square center.
+   * @param {number} laneOffset - Signed perpendicular offset distance.
+   * @returns {Object} Shifted start/end points for rendering.
+   */
+  function applyArrowLaneOffset(fromPoint, toPoint, laneOffset) {
+    if (!laneOffset) {
+      return {
+        fromPoint: { x: fromPoint.x, y: fromPoint.y },
+        toPoint: { x: toPoint.x, y: toPoint.y }
+      };
+    }
+
+    var deltaX = toPoint.x - fromPoint.x;
+    var deltaY = toPoint.y - fromPoint.y;
+    var distance = Math.sqrt((deltaX * deltaX) + (deltaY * deltaY));
+    if (!distance) {
+      return {
+        fromPoint: { x: fromPoint.x, y: fromPoint.y },
+        toPoint: { x: toPoint.x, y: toPoint.y }
+      };
+    }
+
+    var perpendicularX = -deltaY / distance;
+    var perpendicularY = deltaX / distance;
+
+    return {
+      fromPoint: {
+        x: fromPoint.x + (perpendicularX * laneOffset),
+        y: fromPoint.y + (perpendicularY * laneOffset)
+      },
+      toPoint: {
+        x: toPoint.x + (perpendicularX * laneOffset),
+        y: toPoint.y + (perpendicularY * laneOffset)
+      }
+    };
+  }
+
+  /**
    * Build the shaft and arrowhead geometry for a rendered overlay arrow.
    *
    * @param {Object} fromPoint - Start square center.
@@ -219,14 +263,20 @@
    *
    * @param {object} arrowData - Serialized metadata for one engine move.
    * @param {number} ply - Current board ply for the rendered overlay.
+   * @param {Object} layoutOptions - Client-side layout adjustments for this arrow.
    * @returns {SVGGElement|null}
    */
-  function buildArrowElement(arrowData, ply) {
+  function buildArrowElement(arrowData, ply, layoutOptions) {
     var fromPoint = squareToPoint(arrowData.from_sq);
     var toPoint = squareToPoint(arrowData.to_sq);
     if (!fromPoint || !toPoint) {
       return null;
     }
+
+    layoutOptions = layoutOptions || {};
+    var offsetPoints = applyArrowLaneOffset(fromPoint, toPoint, Number(layoutOptions.laneOffset || 0));
+    fromPoint = offsetPoints.fromPoint;
+    toPoint = offsetPoints.toPoint;
 
     var strokeWidth = Number(arrowData.stroke_width || 7);
     var geometry = buildArrowGeometry(fromPoint, toPoint, strokeWidth);
@@ -279,6 +329,34 @@
     head.setAttribute('fill-opacity', Number(arrowData.opacity || 0.7));
     group.appendChild(head);
 
+    if (arrowData.delta_text) {
+      var labelText = String(arrowData.delta_text);
+      var labelPositionRatio = 0.72;
+      var labelCenterX = fromPoint.x + ((geometry.shaftEndX - fromPoint.x) * labelPositionRatio);
+      var labelCenterY = fromPoint.y + ((geometry.shaftEndY - fromPoint.y) * labelPositionRatio);
+      var labelAngleDegrees = Math.atan2(geometry.shaftEndY - fromPoint.y, geometry.shaftEndX - fromPoint.x) * (180 / Math.PI);
+      if (labelAngleDegrees > 90 || labelAngleDegrees < -90) {
+        labelAngleDegrees += 180;
+      }
+
+      var labelGroup = document.createElementNS(SVG_NS, 'g');
+      labelGroup.setAttribute('transform', 'translate(' + labelCenterX + ' ' + labelCenterY + ') rotate(' + labelAngleDegrees + ')');
+
+      var label = document.createElementNS(SVG_NS, 'text');
+      label.setAttribute('class', 'board-arrow-label-text');
+      label.setAttribute('x', '0');
+      label.setAttribute('y', '0.5');
+      label.setAttribute('fill', '#F7F0E1');
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('dominant-baseline', 'middle');
+      label.setAttribute('font-family', 'DM Mono, monospace');
+      label.setAttribute('font-size', '8.2');
+      label.setAttribute('font-weight', '700');
+      label.textContent = labelText;
+      labelGroup.appendChild(label);
+      group.appendChild(labelGroup);
+    }
+
     return group;
   }
 
@@ -318,6 +396,37 @@
   }
 
   /**
+   * Build a lane layout for the current ply so same-origin arrows do not stack.
+   *
+   * @param {Array} arrowsForPly - Arrow metadata for the active ply.
+   * @returns {Object} Map of arrow index to layout options.
+   */
+  function buildArrowLayoutMap(arrowsForPly) {
+    var originGroups = {};
+    var layoutByIndex = {};
+
+    arrowsForPly.forEach(function (arrowData, index) {
+      var originKey = arrowData.from_sq || ('arrow-' + index);
+      if (!originGroups[originKey]) {
+        originGroups[originKey] = [];
+      }
+      originGroups[originKey].push({ index: index, arrowData: arrowData });
+    });
+
+    Object.keys(originGroups).forEach(function (originKey) {
+      var groupEntries = originGroups[originKey];
+      groupEntries.forEach(function (entry, positionIndex) {
+        var centeredIndex = positionIndex - ((groupEntries.length - 1) / 2);
+        layoutByIndex[entry.index] = {
+          laneOffset: centeredIndex * SAME_ORIGIN_ARROW_SPACING
+        };
+      });
+    });
+
+    return layoutByIndex;
+  }
+
+  /**
    * Render the dedicated overlay SVG for the requested ply.
    *
    * @param {number} ply - Current board ply.
@@ -327,8 +436,9 @@
     arrowOverlay.innerHTML = '';
 
     var arrowsForPly = arrowsByPly[String(ply)] || [];
-    arrowsForPly.forEach(function (arrowData) {
-      var arrowElement = buildArrowElement(arrowData, ply);
+    var arrowLayoutMap = buildArrowLayoutMap(arrowsForPly);
+    arrowsForPly.forEach(function (arrowData, arrowIndex) {
+      var arrowElement = buildArrowElement(arrowData, ply, arrowLayoutMap[arrowIndex]);
       if (arrowElement) {
         arrowOverlay.appendChild(arrowElement);
       }

@@ -295,7 +295,8 @@ class BuildBoardFramesTest(TestCase):
         self.assertEqual(first_arrow["tier"], 1)
         self.assertIn("opacity", first_arrow)
         self.assertIn("stroke_width", first_arrow)
-        self.assertEqual(first_arrow["stroke_width"], 7.0)
+        self.assertIn("delta_text", first_arrow)
+        self.assertEqual(first_arrow["stroke_width"], 11.5)
 
     def test_arrow_sizes_are_uniform_across_tiers(self):
         """build_board_frames keeps rendered arrow widths uniform across move ranks."""
@@ -317,7 +318,7 @@ class BuildBoardFramesTest(TestCase):
         result = build_board_frames(data, size=480, orientation="white")
         stroke_widths = {arrow["stroke_width"] for arrow in result["arrows_by_ply"][1]}
 
-        self.assertEqual(stroke_widths, {7.0})
+        self.assertEqual(stroke_widths, {11.5})
 
     def test_overlay_geometry_matches_board_size(self):
         """build_board_frames exposes board-overlay geometry for the client renderer."""

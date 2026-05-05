@@ -32,11 +32,11 @@ _BOARD_COLORS = {
 }
 
 _ENGINE_BASE_COLORS = {
-    "sf": "#D4A843",
-    "lc0": "#4A6E8A",
+    "sf": "#A8781B",
+    "lc0": "#35586F",
 }
-_DEFAULT_TIER_OPACITIES = [0.92, 0.66, 0.42]
-_UNIFORM_ARROW_STROKE_WIDTH = 7.0
+_DEFAULT_TIER_OPACITIES = [0.98, 0.84, 0.68]
+_UNIFORM_ARROW_STROKE_WIDTH = 11.5
 _MAX_SHADE_DELTA = 220.0
 
 
@@ -105,7 +105,7 @@ def _mover_relative_score(played_score: float | None, is_white_move: bool) -> fl
 
 def _format_arrow_delta(engine_key: str, delta: float | None) -> str:
     """
-    Format an engine-arrow delta for tooltip text.
+    Format a compact engine-arrow delta for inline label text.
 
     Params:
         engine_key (str): "sf" or "lc0".
@@ -116,9 +116,8 @@ def _format_arrow_delta(engine_key: str, delta: float | None) -> str:
     """
     if delta is None:
         return ""
-    unit = "cp" if engine_key == "sf" else "cp-eq"
     rounded = int(round(delta))
-    return f"{rounded:+d} {unit}"
+    return f"{rounded:+d}"
 
 
 def _build_arrow_opacity(delta: float | None, tier_index: int) -> float:
@@ -130,7 +129,7 @@ def _build_arrow_opacity(delta: float | None, tier_index: int) -> float:
         tier_index (int): Zero-based rank among the engine's top suggestions.
 
     Returns:
-        Opacity value in the inclusive range [0.22, 0.94].
+        Opacity value in the inclusive range [0.42, 0.98].
     """
     fallback = _DEFAULT_TIER_OPACITIES[min(tier_index, len(_DEFAULT_TIER_OPACITIES) - 1)]
     if delta is None:
@@ -138,8 +137,8 @@ def _build_arrow_opacity(delta: float | None, tier_index: int) -> float:
 
     normalized = max(-1.0, min(1.0, float(delta) / _MAX_SHADE_DELTA))
     scaled = (normalized + 1.0) / 2.0
-    opacity = 0.22 + (scaled * 0.72)
-    return round(max(0.22, min(0.94, opacity)), 3)
+    opacity = 0.42 + (scaled * 0.56)
+    return round(max(0.42, min(0.98, opacity)), 3)
 
 
 def _build_arrow_entries_for_engine(
