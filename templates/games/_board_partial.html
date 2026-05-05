@@ -269,7 +269,7 @@
     shaft.setAttribute('stroke', arrowData.color || '#D4A843');
     shaft.setAttribute('stroke-opacity', Number(arrowData.opacity || 0.7));
     shaft.setAttribute('stroke-width', strokeWidth);
-    shaft.setAttribute('stroke-linecap', 'round');
+    shaft.setAttribute('stroke-linecap', 'butt');
     group.appendChild(shaft);
 
     var head = document.createElementNS(SVG_NS, 'polygon');
