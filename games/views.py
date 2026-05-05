@@ -6,12 +6,15 @@ Description:
     flip without full reload), and the queue-analysis POST endpoint.
 
 Changelog:
+    2026-05-05 (#16): Reworked engine-line continuations to use stored PV SAN data
+                      and removed brittle continuation reconstruction logic
     2026-05-04 (#16): Full rewrite for ply-sync architecture; added board_partial
                       and queue_analysis views; removed build_board_viewer_html usage
 """
 
 import io as _io
 import json
+import re
 
 import chess
 import chess.pgn as _pgn
@@ -23,7 +26,7 @@ from django.views.decorators.http import require_POST
 from analysis.models import AnalysisJob
 from games.board_builder import build_board_frames, _BOARD_COLORS
 from games.models import Game
-from games.services import get_game_analysis
+from games.services import MoveRow, get_game_analysis
 from games.stat_cards import _DUB_CSS, build_lc0_card, build_sf_card
 
 _ACTIVE_STATUSES = [
@@ -138,6 +141,106 @@ def _build_wdl_json(data) -> str:
         if r.wdl_win is not None
     ]
     return json.dumps(rows)
+
+
+def _parse_pv_san_moves(raw_pv_san: str | None) -> list[str]:
+    """
+    Parse stored PV SAN data into an ordered list of SAN moves.
+
+    Params:
+        raw_pv_san (str | None): Stored PV SAN payload, usually a JSON-encoded list.
+
+    Returns:
+        List of SAN moves in continuation order.
+    """
+    if not raw_pv_san:
+        return []
+
+    try:
+        parsed = json.loads(raw_pv_san)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = raw_pv_san
+
+    if isinstance(parsed, list):
+        return [str(move).strip() for move in parsed if str(move).strip()]
+
+    if isinstance(parsed, str):
+        without_move_numbers = re.sub(r"\d+\.(?:\.\.)?", " ", parsed)
+        return [token.strip() for token in without_move_numbers.split() if token.strip() and token.strip() != "*"]
+
+    return []
+
+
+def _engine_row_for_request(
+    data,
+    engine: str,
+    analysis_ply: int,
+) -> MoveRow | None:
+    """
+    Return the engine-analysis row that corresponds to the selected move ply.
+
+    Params:
+        data (GameAnalysisData): Assembled game analysis data.
+        engine (str): "sf" or "lc0".
+        analysis_ply (int): Absolute ply of the move being explored.
+
+    Returns:
+        Matching MoveRow, or None when unavailable.
+    """
+    move_rows = data.moves if engine == "sf" else (data.lc0_moves or [])
+    for row in move_rows:
+        if row.ply == analysis_ply:
+            return row
+    return None
+
+
+def _continuation_san_moves_from_row(
+    move_row: MoveRow | None,
+    tier: int,
+    clicked_move_san: str,
+) -> list[str]:
+    """
+    Return stored continuation SAN moves for the selected engine tier.
+
+    Params:
+        move_row (MoveRow | None): Analysis row for the explored move.
+        tier (int): Suggested move rank (1-3).
+        clicked_move_san (str): SAN for the clicked move in the source position.
+
+    Returns:
+        Continuation SAN moves after the clicked move itself.
+    """
+    if move_row is None:
+        return []
+
+    pv_by_tier = {
+        1: move_row.pv_san_1,
+        2: move_row.pv_san_2,
+        3: move_row.pv_san_3,
+    }
+    pv_moves = _parse_pv_san_moves(pv_by_tier.get(tier))
+    if not pv_moves:
+        return []
+    if pv_moves[0] == clicked_move_san:
+        return pv_moves[1:]
+    return pv_moves
+
+
+def _fallback_game_continuation_sans(
+    moves_list: list[chess.Move],
+    request_ply: int,
+) -> list[chess.Move]:
+    """
+    Return remaining game moves after the selected move index as a fallback line.
+
+    Params:
+        moves_list (list[chess.Move]): Mainline moves from the source game.
+        request_ply (int): Zero-based ply count before the clicked move.
+
+    Returns:
+        Remaining game moves after the selected move.
+    """
+    return list(moves_list[request_ply + 1:])
 
 
 def _build_pgn_moves_json(data) -> str:
@@ -331,6 +434,7 @@ def engine_line_partial(request: HttpRequest, slug: str) -> HttpResponse:
     except (ValueError, TypeError):
         tier = 1
     tier = max(1, min(3, tier))
+    delta_label = request.GET.get("delta_label", "").strip()
 
     orientation = request.GET.get("orientation", "white")
     if orientation not in ("white", "black"):
@@ -342,96 +446,73 @@ def engine_line_partial(request: HttpRequest, slug: str) -> HttpResponse:
         return HttpResponse("Cannot parse PGN", status=400)
 
     board = game_obj.board()
+    start_ply_offset = board.ply()
     moves_list = list(game_obj.mainline_moves())
 
-    # Play moves up to the specified ply
-    # ply is 1-indexed from board_builder (ply 1 = after move 1)
-    # To reach ply N, we need to play moves 0 to N-1 in the moves_list
-    moves_played_in_continuation = []
-    print(f"[DEBUG] engine_line_partial: reconstructing to ply {ply}, total moves: {len(moves_list)}")
-    for i, move in enumerate(moves_list):
-        if i >= ply:
-            break
+    # Move the board to the selected pre-move position.
+    for move in moves_list[:ply]:
         board.push(move)
-        print(f"[DEBUG] Pushed move {i}: {move.uci()}")
 
-    print(f"[DEBUG] Board after {ply} moves: {board.fen()}")
-    # Play the clicked move
+    clicked_move_san = ""
     try:
         clicked_move = board.parse_uci(move_uci)
+        clicked_move_san = board.san(clicked_move)
         board.push(clicked_move)
-        moves_played_in_continuation.append(clicked_move)
-        print(f"[DEBUG] Played clicked move: {move_uci} (in position {board.fen()})")
-    except (ValueError, AssertionError) as e:
-        print(f"[DEBUG] Failed to play {move_uci}: {e}")
+    except (ValueError, AssertionError):
         return HttpResponse("Invalid move_uci for position", status=400)
 
-    # Collect continuation moves from the game if they exist after this ply
-    # Otherwise, generate empty board frames (just the position after the move)
+    analysis_ply = start_ply_offset + ply + 1
     context_parts = ["Best" if tier == 1 else f"Move {tier}"]
     context_parts.append(engine.upper())
-    context_parts.append(f"(ply {ply}+{len(moves_played_in_continuation)})")
+    context_parts.append(f"(ply {analysis_ply})")
+    if delta_label:
+        context_parts.append(delta_label)
     context_label = " ".join(context_parts)
 
-    # Generate board frames for the continuation
-    # For now, we'll just show the continuation position with empty moves
-    # (We could extend this to show actual continuation if stored in DB)
     flipped = orientation == "black"
-    
     frames = []
     san_list = []
     arrow_labels_by_ply = {}
 
-    # Frame 0: position after the clicked move
+    # Frame 0: position after the clicked move.
     frames.append(chess.svg.board(board, size=480, flipped=flipped, colors=_BOARD_COLORS))
 
-    # Try to continue with moves from the game (if this position continues in the actual game)
-    # This is a simplified version; a full implementation would show all continuation moves
     continuation_board = board.copy()
-    continuation_moves = []
-    
-    # Find where we are in the game and continue from there if possible
-    current_board = game_obj.board()
-    moves_to_reach = []
-    for i, move in enumerate(moves_list):
-        if i >= ply:
-            break
-        moves_to_reach.append(move)
-    
-    # Play those moves to get to our position
-    for m in moves_to_reach:
-        current_board.push(m)
-    
-    # Try to play the clicked move in the game
-    try:
-        if current_board.parse_uci(move_uci) in current_board.legal_moves:
-            current_board.push(current_board.parse_uci(move_uci))
-            
-            # Collect remaining moves from the game
-            remaining_game_moves = []
-            for i, move in enumerate(moves_list):
-                if i > ply:
-                    remaining_game_moves.append(move)
-            
-            # Generate frames for continuation (up to 50+ moves)
-            for move_idx, move in enumerate(remaining_game_moves[:50]):
-                try:
-                    if move in continuation_board.legal_moves:
-                        san = continuation_board.san(move)
-                        continuation_board.push(move)
-                        san_list.append(san)
-                        
-                        frames.append(chess.svg.board(
-                            continuation_board,
-                            size=480,
-                            lastmove=move,
-                            flipped=flipped,
-                            colors=_BOARD_COLORS,
-                        ))
-                except (ValueError, AssertionError):
-                    break
-    except (ValueError, AssertionError):
-        pass
+    move_row = _engine_row_for_request(data, engine, analysis_ply)
+    continuation_sans = _continuation_san_moves_from_row(move_row, tier, clicked_move_san)
+
+    if continuation_sans:
+        for san in continuation_sans:
+            try:
+                continuation_move = continuation_board.parse_san(san)
+            except (ValueError, AssertionError):
+                break
+
+            continuation_board.push(continuation_move)
+            san_list.append(san)
+            frames.append(chess.svg.board(
+                continuation_board,
+                size=480,
+                lastmove=continuation_move,
+                flipped=flipped,
+                colors=_BOARD_COLORS,
+            ))
+    else:
+        for move in _fallback_game_continuation_sans(moves_list, ply)[:50]:
+            try:
+                san = continuation_board.san(move)
+                continuation_board.push(move)
+            except (ValueError, AssertionError):
+                break
+
+            san_list.append(san)
+            frames.append(chess.svg.board(
+                continuation_board,
+                size=480,
+                lastmove=move,
+                flipped=flipped,
+                colors=_BOARD_COLORS,
+            ))
 
     return render(request, "games/_engine_line_partial.html", {
         "frames_json": json.dumps(frames),

@@ -6,10 +6,15 @@ Description:
     functions (views). Does not test database models.
 
 Changelog:
+    2026-05-05 (#16): Added engine-line continuation tests for stored PV SAN usage
     2026-05-04 (#16): Initial test suite for the game analysis page rewrite
 """
 
-from django.test import TestCase
+import json
+from unittest.mock import patch
+
+from django.http import HttpResponse
+from django.test import RequestFactory, TestCase
 
 from games.board_builder import _build_tier_map, build_board_frames
 from games.services import GameAnalysisData, MoveRow
@@ -19,7 +24,10 @@ from games.stat_cards import (
 )
 from games.views import (
     _build_eval_json, _build_pgn_moves_json, _build_wdl_json,
+    _continuation_san_moves_from_row,
     _details_string, _opening_label,
+    _parse_pv_san_moves,
+    engine_line_partial,
 )
 
 
@@ -228,6 +236,33 @@ class BuildTierMapTest(TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Engine line continuation helpers
+# ---------------------------------------------------------------------------
+
+class EngineLineContinuationHelperTest(TestCase):
+    """Tests for stored engine-line continuation helpers."""
+
+    def test_parse_pv_san_moves_reads_json_list(self):
+        """_parse_pv_san_moves parses a JSON-encoded SAN list."""
+        result = _parse_pv_san_moves('["e4", "e5", "Nf3"]')
+        self.assertEqual(result, ["e4", "e5", "Nf3"])
+
+    def test_continuation_helper_skips_clicked_move_when_present(self):
+        """_continuation_san_moves_from_row omits the already-played clicked move."""
+        row = MoveRow(
+            ply=1,
+            san="e4",
+            fen=MOVE_E4.fen,
+            arrow_uci="e2e4",
+            pv_san_1='["e4", "e5", "Nf3", "Nc6"]',
+        )
+
+        result = _continuation_san_moves_from_row(row, 1, "e4")
+
+        self.assertEqual(result, ["e5", "Nf3", "Nc6"])
+
+
+# ---------------------------------------------------------------------------
 # build_board_frames
 # ---------------------------------------------------------------------------
 
@@ -293,9 +328,10 @@ class BuildBoardFramesTest(TestCase):
         self.assertEqual(first_arrow["move_uci"], "e2e4")
         self.assertEqual(first_arrow["engine"], "sf")
         self.assertEqual(first_arrow["tier"], 1)
+        self.assertEqual(first_arrow["request_ply"], 0)
+        self.assertIn("delta_text", first_arrow)
         self.assertIn("opacity", first_arrow)
         self.assertIn("stroke_width", first_arrow)
-        self.assertIn("delta_text", first_arrow)
         self.assertEqual(first_arrow["stroke_width"], 11.5)
 
     def test_arrow_sizes_are_uniform_across_tiers(self):
@@ -336,6 +372,54 @@ class BuildBoardFramesTest(TestCase):
         result = build_board_frames(data, size=480, orientation="white")
         self.assertEqual(len(result["frames"]), 1)
         self.assertEqual(result["san_list"], [])
+
+
+# ---------------------------------------------------------------------------
+# engine_line_partial
+# ---------------------------------------------------------------------------
+
+class EngineLinePartialTest(TestCase):
+    """Tests for engine_line_partial continuation rendering."""
+
+    def setUp(self):
+        """Create a request factory for direct view calls."""
+        self.factory = RequestFactory()
+
+    def test_uses_all_stored_pv_moves_for_continuation(self):
+        """engine_line_partial renders all stored continuation SAN moves for the selected tier."""
+        pv_move = MoveRow(
+            ply=1,
+            san="e4",
+            fen=MOVE_E4.fen,
+            cp_eval=30,
+            arrow_uci="e2e4",
+            pv_san_1='["e4", "e5", "Nf3", "Nc6"]',
+            classification="best",
+        )
+        data = _minimal_data(
+            moves=[pv_move, MOVE_E5, MOVE_NF3, MOVE_NC6],
+            white_accuracy=85.0,
+        )
+        request = self.factory.get(
+            "/_partials/games/test-slug/engine-line/",
+            {"ply": "0", "move_uci": "e2e4", "engine": "sf", "tier": "1", "orientation": "white", "delta_label": "+30"},
+        )
+
+        def fake_render(_request, _template, context):
+            return HttpResponse(json.dumps(context), content_type="application/json")
+
+        with patch("games.views.get_object_or_404", return_value=object()), \
+             patch("games.views.get_game_analysis", return_value=data), \
+             patch("games.views.render", side_effect=fake_render):
+            response = engine_line_partial(request, "test-slug")
+
+        payload = json.loads(response.content)
+        san_list = json.loads(payload["san_list_json"])
+        frames = json.loads(payload["frames_json"])
+
+        self.assertEqual(san_list, ["e5", "Nf3", "Nc6"])
+        self.assertEqual(len(frames), 4)
+        self.assertEqual(payload["context_label"], "Best SF (ply 1) +30")
 
 
 # ---------------------------------------------------------------------------

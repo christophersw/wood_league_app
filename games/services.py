@@ -42,6 +42,9 @@ class MoveRow:
     wdl_loss: int | None = None
     cp_equiv: float | None = None
     move_win_delta: float | None = None
+    pv_san_1: str | None = None
+    pv_san_2: str | None = None
+    pv_san_3: str | None = None
 
 
 @dataclass
@@ -167,6 +170,9 @@ def get_game_analysis(slug: str) -> GameAnalysisData | None:
                 arrow_score_2=m.arrow_score_2,
                 arrow_score_3=m.arrow_score_3,
                 classification=m.classification,
+                pv_san_1=m.pv_san_1,
+                pv_san_2=m.pv_san_2,
+                pv_san_3=m.pv_san_3,
             )
             for m in ga.moves.order_by("ply")
         ]
@@ -221,6 +227,9 @@ def get_game_analysis(slug: str) -> GameAnalysisData | None:
                 best_move=lm.best_move if lm else "",
                 arrow_uci=lm.arrow_uci if lm else "",
                 classification=lm.classification if lm else None,
+                pv_san_1=lm.pv_san_1 if lm else None,
+                pv_san_2=lm.pv_san_2 if lm else None,
+                pv_san_3=lm.pv_san_3 if lm else None,
             )
         )
 
@@ -286,6 +295,9 @@ def _lc0_move_rows(lga: Lc0GameAnalysis | None) -> list[MoveRow] | None:
             arrow_score_3=m.arrow_score_3,
             move_win_delta=m.move_win_delta,
             classification=m.classification,
+            pv_san_1=m.pv_san_1,
+            pv_san_2=m.pv_san_2,
+            pv_san_3=m.pv_san_3,
         )
         for m in lga.moves.order_by("ply")
     ]

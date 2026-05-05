@@ -201,6 +201,7 @@ def _build_arrow_entries_for_engine(
             "engine": engine_key,
             "engine_label": engine_label,
             "tier": tier_index + 1,
+            "request_ply": max(0, relative_ply - 1),
             "move_uci": move_uci,
             "from_sq": move_uci[:2],
             "to_sq": move_uci[2:4],

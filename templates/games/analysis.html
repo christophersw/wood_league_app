@@ -115,16 +115,16 @@
     <div style="display:flex;flex-direction:column;gap:12px;min-width:0;">
 
       <div id="engine-lines-shell" style="position:relative;">
-        <div id="engine-lines-header" style="font-family:'DM Mono',monospace;font-size:.65rem;letter-spacing:.04em;
-                    text-transform:uppercase;color:#8B3A2A;padding:4px 6px 2px;border-top:2.5px solid #1A1A1A;border-bottom:1px solid #1A1A1A;
-                    height:24px;display:flex;align-items:center;background:rgba(242,230,208,.2);">
+        <div id="engine-lines-header" style="font-family:'DM Mono',monospace;font-size:.95rem;letter-spacing:.04em;
+                    text-transform:uppercase;color:#8B3A2A;padding:5px 4px;border-top:2.5px solid #1A1A1A;border-bottom:1px solid #1A1A1A;
+                    min-height:31px;box-sizing:border-box;display:flex;align-items:center;background:rgba(242,230,208,.2);font-weight:700;">
           Click engine arrow to explore
         </div>
-        <div id="engine-lines-container" style="position:relative;background:rgba(242,230,208,.1);border-left:2px solid #1A1A1A;border-right:2px solid #1A1A1A;min-height:520px;display:flex;align-items:center;justify-content:center;color:#8B3A2A;font-family:'DM Mono',monospace;font-size:.72rem;">
+        <div id="engine-lines-container" style="position:relative;background:rgba(242,230,208,.1);display:flex;align-items:center;justify-content:center;color:#8B3A2A;font-family:'DM Mono',monospace;font-size:.72rem;">
           {# Engine Lines board will be loaded here via HTMX #}
           <div id="engine-lines-loading" style="display:none;">Loading…</div>
         </div>
-        <div id="engine-lines-controls" style="display:flex;align-items:center;gap:5px;padding:8px 0 6px;justify-content:center;border-top:1px solid #D4C4A0;flex-wrap:wrap;border-left:2px solid #1A1A1A;border-right:2px solid #1A1A1A;border-bottom:2px solid #1A1A1A;">
+        <div id="engine-lines-controls" style="display:flex;align-items:center;gap:5px;padding:8px 0 6px;justify-content:center;border-top:1px solid #D4C4A0;flex-wrap:wrap;">
           <button class="board-btn" id="engine-lines-btn-start" title="Start">&#x23EE;</button>
           <button class="board-btn" id="engine-lines-btn-prev" title="Previous">&#x25C0;</button>
           <button class="board-btn" id="engine-lines-btn-play" title="Play/Pause">&#x25B6;</button>
@@ -134,6 +134,7 @@
           <span id="engine-lines-ply-label" style="font-family:'DM Mono',monospace;font-size:.68rem;color:#8B3A2A;min-width:72px;text-align:center;letter-spacing:.04em;">—</span>
           <button class="board-btn" id="engine-lines-btn-flip" title="Flip Board" style="margin-left:4px;">⇅</button>
         </div>
+        <div class="engine-line-toggles-spacer" aria-hidden="true"></div>
       </div>
     </div>
 

@@ -6,49 +6,21 @@
   <script type="application/json" id="engine-line-arrows-json">{{ arrow_labels_json|safe }}</script>
   <script type="application/json" id="engine-line-san-json">{{ san_list_json|safe }}</script>
 
-  {# Context label showing what line is being displayed #}
-  <div style="font-family:'DM Mono',monospace;font-size:.60rem;letter-spacing:.04em;
-              text-transform:uppercase;color:#8B3A2A;padding:2px 4px;
-              border-bottom:1px solid #1A1A1A;background:rgba(242,230,208,.1);
-              text-align:center;">
-    {{ context_label }}
-  </div>
-
   {# Board SVG container #}
   <div class="board-wrap" id="engine-line-board-svg-wrap"></div>
+  <div class="engine-line-player-spacer" aria-hidden="true"></div>
 
 </div>
 
 <script>
 (function () {
-  var frames = JSON.parse(document.getElementById('engine-line-frames-json').textContent);
-  var arrowLabels = JSON.parse(document.getElementById('engine-line-arrows-json').textContent);
-  var sanList = JSON.parse(document.getElementById('engine-line-san-json').textContent);
-  var totalFrames = frames.length;
-
-  var svgWrap = document.getElementById('engine-line-board-svg-wrap');
-  var slider = document.getElementById('engine-lines-slider');
-
-  function renderPly(ply) {
-    ply = Math.max(0, Math.min(totalFrames - 1, ply));
-    svgWrap.innerHTML = frames[ply];
+  if (window.WoodLeagueEngineLines && typeof window.WoodLeagueEngineLines.clearRequestState === 'function') {
+    window.WoodLeagueEngineLines.clearRequestState();
   }
 
-  // Subscribe to EngineLines state changes
-  var unsubscribe = null;
-  if (window.WoodLeagueEngineLines) {
-    unsubscribe = window.WoodLeagueEngineLines.subscribe(function (state) {
-      renderPly(state.ply);
-    });
-    // Render initial state
-    renderPly(window.WoodLeagueEngineLines.getState().ply);
-  } else {
-    renderPly(0);
-  }
-
-  // Set total plies and initialize controls
-  if (window.WoodLeagueEngineLines) {
-    window.WoodLeagueEngineLines.setTotalPlies(totalFrames - 1);
+  var engineLinesHeader = document.getElementById('engine-lines-header');
+  if (engineLinesHeader) {
+    engineLinesHeader.textContent = '{{ context_label|escapejs }}';
   }
 
   // Call setupEngineLineBoard to initialize controls
@@ -56,12 +28,7 @@
     var framesJson = document.getElementById('engine-line-frames-json').textContent;
     var arrowLabelsJson = document.getElementById('engine-line-arrows-json').textContent;
     var sanListJson = document.getElementById('engine-line-san-json').textContent;
-    window.setupEngineLineBoard(framesJson, arrowLabelsJson, sanListJson, totalFrames);
+    window.setupEngineLineBoard(framesJson, arrowLabelsJson, sanListJson);
   }
-
-  // Clean up subscription when HTMX removes this element
-  document.getElementById('engine-line-board-inner').addEventListener('htmx:beforeCleanupElement', function () {
-    if (unsubscribe) unsubscribe();
-  });
 })();
 </script>

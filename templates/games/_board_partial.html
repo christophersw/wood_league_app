@@ -66,10 +66,10 @@
 </div>
 
 <style>
-.player-label{display:flex;align-items:center;justify-content:space-between;border-top:2.5px solid #1A1A1A;border-bottom:1px solid #1A1A1A;padding:5px 4px;}
+.player-label{display:flex;align-items:center;justify-content:space-between;border-top:2.5px solid #1A1A1A;border-bottom:1px solid #1A1A1A;padding:5px 4px;min-height:31px;box-sizing:border-box;}
 .player-side{font-family:'DM Mono',monospace;font-size:.65rem;letter-spacing:.12em;text-transform:uppercase;color:#8B3A2A;}
 .player-name{font-family:Georgia,serif;font-size:.95rem;font-weight:600;color:#1A1A1A;letter-spacing:.02em;}
-.board-wrap{border-left:2px solid #1A1A1A;border-right:2px solid #1A1A1A;display:flex;justify-content:center;}
+.board-wrap{display:flex;justify-content:center;margin:0 4px;padding:0 4px;box-sizing:border-box;}
 .board-stage{position:relative;width:480px;max-width:100%;}
 .board-svg-layer svg{display:block;width:100%;height:auto;}
 .board-arrow-overlay{position:absolute;inset:0;width:100%;height:100%;display:block;}
@@ -85,10 +85,13 @@
 .arrow-toggles{display:flex;gap:14px;align-items:center;padding:5px 2px 2px;font-family:'DM Mono',monospace;font-size:.72rem;letter-spacing:.04em;}
 .arrow-toggle-label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none;}
 .arrow-swatch{display:inline-block;width:18px;height:4px;border-radius:2px;vertical-align:middle;}
+.engine-line-player-spacer{border-top:1px solid #1A1A1A;border-bottom:2.5px solid #1A1A1A;padding:5px 4px;min-height:31px;box-sizing:border-box;}
+.engine-line-toggles-spacer{padding:5px 2px 2px;min-height:22px;box-sizing:border-box;}
 </style>
 
 <script>
 (function () {
+  var ENGINE_LINE_REQUEST_EVENT = 'woodleague:engine-line-requested';
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var SAME_ORIGIN_ARROW_SPACING = 9;
   var frames = JSON.parse(document.getElementById('board-frames-json').textContent);
@@ -290,6 +293,10 @@
     group.setAttribute('data-move-uci', arrowData.move_uci || '');
     group.setAttribute('data-tier', String(arrowData.tier || 1));
     group.setAttribute('data-ply', String(ply));
+    group.setAttribute('data-request-ply', String(
+      typeof arrowData.request_ply === 'number' ? arrowData.request_ply : Math.max(0, ply - 1)
+    ));
+    group.setAttribute('data-delta-text', arrowData.delta_text || '');
     group.setAttribute('tabindex', '0');
     group.setAttribute('focusable', 'true');
     group.setAttribute('role', 'button');
@@ -378,21 +385,25 @@
   }
 
   /**
-   * Open the Engine Lines continuation for the clicked overlay arrow.
+   * Dispatch the selected arrow as a continuation request for the Engine Lines board.
    *
    * @param {Element} arrowGroup - Rendered arrow group with data attributes.
    */
   function openArrowContinuation(arrowGroup) {
-    if (!arrowGroup || !window.WoodLeagueEngineLines || typeof window.WoodLeagueEngineLines.openArrowLine !== 'function') {
+    if (!arrowGroup) {
       return;
     }
 
-    window.WoodLeagueEngineLines.openArrowLine({
-      ply: parseInt(arrowGroup.getAttribute('data-ply'), 10) || 0,
-      moveUci: arrowGroup.getAttribute('data-move-uci') || '',
-      engine: arrowGroup.getAttribute('data-engine') || 'sf',
-      tier: parseInt(arrowGroup.getAttribute('data-tier'), 10) || 1,
-    });
+    document.dispatchEvent(new CustomEvent(ENGINE_LINE_REQUEST_EVENT, {
+      bubbles: true,
+      detail: {
+        ply: parseInt(arrowGroup.getAttribute('data-request-ply'), 10) || 0,
+        moveUci: arrowGroup.getAttribute('data-move-uci') || '',
+        engine: arrowGroup.getAttribute('data-engine') || 'sf',
+        tier: parseInt(arrowGroup.getAttribute('data-tier'), 10) || 1,
+        deltaText: arrowGroup.getAttribute('data-delta-text') || '',
+      }
+    }));
   }
 
   /**
