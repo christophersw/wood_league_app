@@ -295,6 +295,29 @@ class BuildBoardFramesTest(TestCase):
         self.assertEqual(first_arrow["tier"], 1)
         self.assertIn("opacity", first_arrow)
         self.assertIn("stroke_width", first_arrow)
+        self.assertEqual(first_arrow["stroke_width"], 7.0)
+
+    def test_arrow_sizes_are_uniform_across_tiers(self):
+        """build_board_frames keeps rendered arrow widths uniform across move ranks."""
+        move_with_tiers = MoveRow(
+            ply=1,
+            san="e4",
+            fen=MOVE_E4.fen,
+            cp_eval=30,
+            arrow_uci="e2e4",
+            arrow_uci_2="d2d4",
+            arrow_uci_3="g1f3",
+            arrow_score_1=60.0,
+            arrow_score_2=35.0,
+            arrow_score_3=10.0,
+            classification="best",
+        )
+        data = _minimal_data(moves=[move_with_tiers, MOVE_E5, MOVE_NF3, MOVE_NC6], white_accuracy=85.0)
+
+        result = build_board_frames(data, size=480, orientation="white")
+        stroke_widths = {arrow["stroke_width"] for arrow in result["arrows_by_ply"][1]}
+
+        self.assertEqual(stroke_widths, {7.0})
 
     def test_overlay_geometry_matches_board_size(self):
         """build_board_frames exposes board-overlay geometry for the client renderer."""

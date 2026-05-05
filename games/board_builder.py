@@ -36,7 +36,7 @@ _ENGINE_BASE_COLORS = {
     "lc0": "#4A6E8A",
 }
 _DEFAULT_TIER_OPACITIES = [0.92, 0.66, 0.42]
-_TIER_STROKE_WIDTHS = [8.5, 7.0, 5.5]
+_UNIFORM_ARROW_STROKE_WIDTH = 7.0
 _MAX_SHADE_DELTA = 220.0
 
 
@@ -207,7 +207,7 @@ def _build_arrow_entries_for_engine(
             "to_sq": move_uci[2:4],
             "color": base_color,
             "opacity": _build_arrow_opacity(delta, tier_index),
-            "stroke_width": _TIER_STROKE_WIDTHS[min(tier_index, len(_TIER_STROKE_WIDTHS) - 1)],
+            "stroke_width": _UNIFORM_ARROW_STROKE_WIDTH,
             "delta": round(float(delta), 2) if delta is not None else None,
             "delta_text": delta_text,
             "title": tooltip,
