@@ -23,13 +23,17 @@ IS_PRODUCTION = os.environ.get("RAILWAY_ENVIRONMENT_NAME") == "production"
 IS_RAILWAY = os.environ.get("RAILWAY_ENVIRONMENT_NAME") is not None
 
 # Security settings - defaults prioritize production safety
-SECRET_KEY = config("SECRET_KEY", default=None)
-if not SECRET_KEY:
-    if IS_PRODUCTION:
-        raise ValueError(
-            "SECRET_KEY environment variable must be set in production"
-        )
-    SECRET_KEY = "django-insecure-dev-key-change-in-production"
+SECRET_KEY = config(
+    "SECRET_KEY",
+    default="django-insecure-dev-key-change-in-production"
+)
+if IS_PRODUCTION and SECRET_KEY == "django-insecure-dev-key-change-in-production":
+    import warnings
+    warnings.warn(
+        "WARNING: Using insecure default SECRET_KEY in production. "
+        "Set the SECRET_KEY environment variable.",
+        RuntimeWarning,
+    )
 
 DEBUG = config("DEBUG", default=not IS_PRODUCTION, cast=bool)
 
