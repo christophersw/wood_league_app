@@ -21,7 +21,7 @@ class AdminViewsTests(TestCase):
         self.staff_user = User.objects.create_user(
             email='admin@test.local',
             password='adminpass',
-            is_staff=True,
+            role='admin',
         )
         self.regular_user = User.objects.create_user(
             email='user@test.local',

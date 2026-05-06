@@ -1,5 +1,5 @@
 {% for key in keys %}
-  <tr class="api-key-row" id="key-{{ key.id }}">
+  <tr class="api-key-row" data-key-id="{{ key.id }}">
     <td>{{ key.worker_name }}</td>
     <td><span class="key-prefix">{{ key.prefix }}</span></td>
     <td>{{ key.created_by.email|default:"—" }}</td>
@@ -14,6 +14,7 @@
       {% if not key.revoked %}
         <button class="btn btn-danger" 
                 hx-post="{% url 'api-keys-revoke' key.id %}"
+                hx-target="[data-key-id='{{ key.id }}']"
                 hx-swap="outerHTML"
                 hx-confirm="Revoke this key? Workers will no longer be able to use it.">
           Revoke

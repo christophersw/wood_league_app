@@ -40,7 +40,7 @@
         </tr>
       </thead>
       <tbody id="keys-body">
-        {% include "api/_partials/admin/api_keys/list.html" %}
+        {% include "_partials/admin/api_keys/list.html" %}
       </tbody>
     </table>
   </div>
@@ -189,6 +189,8 @@
       .then(html => {
         document.getElementById('modal-body').innerHTML = html;
         document.getElementById('modal').style.display = 'flex';
+        // Initialize HTMX on newly injected form
+        htmx.process(document.getElementById('modal-body'));
       });
   }
   

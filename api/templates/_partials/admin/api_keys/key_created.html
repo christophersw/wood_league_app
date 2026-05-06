@@ -18,7 +18,7 @@
 </div>
 
 <div style="background: var(--color-cream); padding: 1rem; border-left: 3px solid var(--color-forest); margin-bottom: 1.5rem;">
-  <p style="margin: 0 0 0.5rem 0; font-weight: 500;">Worker ID: <code>{{ key.id }}</code></p>
+  <p style="margin: 0 0 0.5rem 0; font-weight: 500;">Worker: <code>{{ key.worker_name }}</code></p>
   <p style="margin: 0 0 0.5rem 0; font-weight: 500;">Key Prefix: <code style="color: var(--color-whisky);">{{ key.prefix }}</code></p>
   <p style="margin: 0; font-size: 0.9rem; color: var(--color-slate);">
     The prefix is safe to log. Store the full key securely.
@@ -46,6 +46,7 @@
   
   function confirmAndRefresh() {
     closeModal();
-    htmx.ajax('GET', '{% url "api-keys-list-partial" %}', '#keys-body');
+    // Refresh the table by swapping in the new list
+    htmx.ajax('GET', '{% url "api-keys-list-partial" %}', {target: '#keys-body', swap: 'innerHTML'});
   }
 </script>
