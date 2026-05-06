@@ -27,11 +27,15 @@ if "healthcheck.railway.app" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("healthcheck.railway.app")
 
 # CSRF protection for reverse proxy (Railway)
-CSRF_TRUSTED_ORIGINS = config(
-    "CSRF_TRUSTED_ORIGINS",
-    default="",
-    cast=Csv(),
-)
+_csrf_origins = config("CSRF_TRUSTED_ORIGINS", default="")
+CSRF_TRUSTED_ORIGINS = [origin for origin in _csrf_origins.split(",") if origin.strip()]
+
+# Also add the domain to ALLOWED_HOSTS if it's in CSRF_TRUSTED_ORIGINS
+for origin in CSRF_TRUSTED_ORIGINS:
+    # Extract domain from origin URL (e.g., https://example.com -> example.com)
+    domain = origin.replace("https://", "").replace("http://", "").rstrip("/")
+    if domain not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(domain)
 
 AUTH_USER_MODEL = "accounts.User"
 
