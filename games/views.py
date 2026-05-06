@@ -41,6 +41,48 @@ _ACTIVE_STATUSES = [
 ]
 
 
+def _humanize_time_control(time_control: str) -> str:
+    """
+    Convert time control to human-readable format.
+
+    Handles two formats:
+    - "x/y" (PGN format where y is total seconds): e.g., "1/259200" → "3 days"
+    - "x+y" (clock format in minutes): e.g., "600+0" → "600+0" (unchanged)
+
+    Params:
+        time_control (str): Time control string.
+
+    Returns:
+        Human-readable time control string.
+    """
+    if not time_control:
+        return ""
+    
+    # Handle PGN format "x/y" where y is seconds
+    if "/" in time_control:
+        try:
+            parts = time_control.split("/")
+            if len(parts) == 2:
+                seconds = int(parts[1])
+                # Convert to human-readable format
+                if seconds >= 86400:  # 1 day = 86400 seconds
+                    days = seconds // 86400
+                    return f"{days}d"
+                elif seconds >= 3600:  # 1 hour
+                    hours = seconds // 3600
+                    return f"{hours}h"
+                elif seconds >= 60:  # 1 minute
+                    minutes = seconds // 60
+                    return f"{minutes}m"
+                else:
+                    return f"{seconds}s"
+        except (ValueError, IndexError):
+            pass
+    
+    # Return as-is if we can't parse it
+    return time_control
+
+
 def _details_string(data) -> str:
     """
     Build the date · time-control details string for the page header.
@@ -49,13 +91,13 @@ def _details_string(data) -> str:
         data (GameAnalysisData): Assembled game analysis data.
 
     Returns:
-        String like "2024-03-15 14:30 · 600+0", or empty string.
+        String like "2024-03-15 14:30 · 600+0" or "2024-03-15 · 3d", or empty string.
     """
     parts = []
     if data.date:
         parts.append(data.date)
     if data.time_control:
-        parts.append(data.time_control)
+        parts.append(_humanize_time_control(data.time_control))
     return " · ".join(parts)
 
 

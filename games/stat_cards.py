@@ -23,13 +23,16 @@ _DUB_CSS = """<style>
 .dub-head{border-top:3px solid #1A1A1A;border-bottom:1.5px solid #1A1A1A;display:flex;justify-content:space-between;align-items:baseline;padding:5px 0 4px;margin-bottom:16px;}
 .dub-title{font-family:'Playfair Display SC','Cormorant Garamond',Georgia,serif;font-size:.92rem;letter-spacing:.07em;color:#1A3A2A;}
 .dub-meta{font-size:.60rem;letter-spacing:.06em;color:#8B3A2A;text-transform:uppercase;}
-.dub-row{display:grid;grid-template-columns:140px 1fr 52px;align-items:center;gap:0 8px;margin-bottom:5px;}
+.dub-player-name{font-size:1.0rem;font-weight:700;color:#1A1A1A;margin:12px 0 8px;}
+.dub-metric-label{font-size:.65rem;color:#5A5A5A;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;}
+.dub-chip{display:inline-block;background:#EFE4CC;border:1px solid #1A1A1A;padding:.3rem .6rem;border-radius:3px;font-size:.60rem;margin-right:8px;margin-bottom:6px;}
+.dub-row{display:grid;grid-template-columns:1fr 52px;align-items:center;gap:0 8px;margin-bottom:5px;}
 .dub-player-lbl{font-size:.70rem;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#1A1A1A;}
-.dub-chess{color:#8B3A2A;margin-right:3px;}
+.dub-chess{font-size:1.1em;margin-right:4px;}
 .dub-val{font-size:.78rem;font-weight:700;text-align:right;white-space:nowrap;color:#1A1A1A;}
 .dub-bar{height:28px;background:#F2E6D0;border:1.5px solid #1A1A1A;position:relative;overflow:hidden;}
-.dub-bar-fill{position:absolute;left:0;top:0;bottom:0;display:flex;align-items:center;padding-left:6px;}
-.dub-bar-lbl{font-size:.65rem;font-weight:700;color:#F2E6D0;white-space:nowrap;overflow:hidden;}
+.dub-bar-fill{position:absolute;left:0;top:0;bottom:0;height:100%;display:flex;align-items:center;padding-left:6px;}
+.dub-bar-lbl{font-size:.65rem;font-weight:700;color:#FFFFFF;white-space:nowrap;overflow:hidden;}
 .dub-stack{height:28px;display:flex;border:1.5px solid #1A1A1A;overflow:hidden;}
 .dub-seg{display:flex;align-items:center;justify-content:center;font-size:.60rem;font-weight:700;overflow:hidden;white-space:nowrap;color:#F2E6D0;}
 .dub-win{background:#1A3A2A;}.dub-draw{background:#8B3A2A;}.dub-loss{background:#B53541;}
@@ -80,13 +83,43 @@ def _acc_color(pct: float) -> str:
     return "#B53541"
 
 
-def _bar_row(sym: str, name: str, pct: float, val_str: str, fill: str | None = None) -> str:
+def _bar_row(sym: str, name: str, pct: float, val_str: str, fill: str | None = None, is_winner: bool = False) -> str:
     """
     Generate HTML for a single stat bar row with player label, filled bar, and value.
 
     Params:
         sym (str): Chess piece symbol (♙ or ♟).
         name (str): Player name.
+        pct (float): Bar fill percentage 0–100.
+        val_str (str): Display value string shown in the right column.
+        fill (str | None): Custom hex color for the bar fill; defaults to accuracy color.
+        is_winner (bool): Whether this player won the game.
+
+    Returns:
+        HTML string for the row.
+    """
+    color = fill or _acc_color(pct)
+    w = min(max(pct, 0), 100)
+    inner_lbl = f'<span class="dub-bar-lbl">{escape(val_str)}</span>' if w > 15 else ""
+    
+    # Determine piece color based on piece symbol
+    piece_color = "#FFFFFF" if sym == "♙" else "#000000"
+    trophy = " 🏆" if is_winner else ""
+    
+    return (
+        f'<div class="dub-row">'
+        f'<div class="dub-player-lbl"><span class="dub-chess" style="color:{piece_color}">{sym}</span>{escape(name)}{trophy}</div>'
+        f'<div class="dub-bar"><div class="dub-bar-fill" style="width:{w:.1f}%;background:{color}">{inner_lbl}</div></div>'
+        f'<div class="dub-val">{escape(val_str)}</div>'
+        f"</div>"
+    )
+
+
+def _metric_bar(pct: float, val_str: str, fill: str | None = None) -> str:
+    """
+    Generate HTML for a metric bar row without player label.
+
+    Params:
         pct (float): Bar fill percentage 0–100.
         val_str (str): Display value string shown in the right column.
         fill (str | None): Custom hex color for the bar fill; defaults to accuracy color.
@@ -97,69 +130,26 @@ def _bar_row(sym: str, name: str, pct: float, val_str: str, fill: str | None = N
     color = fill or _acc_color(pct)
     w = min(max(pct, 0), 100)
     inner_lbl = f'<span class="dub-bar-lbl">{escape(val_str)}</span>' if w > 15 else ""
+    
     return (
         f'<div class="dub-row">'
-        f'<div class="dub-player-lbl"><span class="dub-chess">{sym}</span>{escape(name)}</div>'
         f'<div class="dub-bar"><div class="dub-bar-fill" style="width:{w:.1f}%;background:{color}">{inner_lbl}</div></div>'
-        f'<div class="dub-val">{escape(val_str)}</div>'
         f"</div>"
     )
 
 
-def _wdl_row(sym: str, name: str, win: float, draw: float, loss: float) -> str:
+def _quality_metric_bar(brilliant: int, best: int, great: int, inaccuracy: int, mistake: int, blunder: int, total: int) -> str:
     """
-    Generate HTML for a Win/Draw/Loss probability stacked bar row.
+    Generate HTML for move quality classification bar row without player label.
 
     Params:
-        sym (str): Chess piece symbol.
-        name (str): Player name.
-        win (float): Win probability 0–100.
-        draw (float): Draw probability 0–100.
-        loss (float): Loss probability 0–100.
-
-    Returns:
-        HTML string for the row.
-    """
-    def _seg(cls: str, pct: float, lbl: str) -> str:
-        """Build a single WDL segment."""
-        txt = lbl if pct >= 9 else ""
-        return f'<div class="dub-seg {cls}" style="flex:{pct:.1f}">{escape(txt)}</div>'
-
-    segs = (
-        _seg("dub-win", win, f"W {win:.0f}%")
-        + _seg("dub-draw", draw, f"D {draw:.0f}%")
-        + _seg("dub-loss", loss, f"L {loss:.0f}%")
-    )
-    return (
-        f'<div class="dub-row">'
-        f'<div class="dub-player-lbl"><span class="dub-chess">{sym}</span>{escape(name)}</div>'
-        f'<div class="dub-stack">{segs}</div>'
-        f'<div class="dub-val" style="font-size:.58rem;color:#5A5A5A">WDL</div>'
-        f"</div>"
-    )
-
-
-def _quality_row(
-    sym: str, name: str,
-    brilliant: int, best: int, great: int,
-    inaccuracy: int, mistake: int, blunder: int,
-    total: int,
-) -> str:
-    """
-    Generate HTML for a move quality classification stacked bar row.
-
-    Each segment shows a short label (e.g., "!! 2") when wide enough.
-
-    Params:
-        sym (str): Chess piece symbol.
-        name (str): Player name.
         brilliant (int): Count of brilliant moves.
         best (int): Count of best moves.
         great (int): Count of great moves.
         inaccuracy (int): Count of inaccuracies.
         mistake (int): Count of mistakes.
         blunder (int): Count of blunders.
-        total (int): Total moves for this side.
+        total (int): Total moves.
 
     Returns:
         HTML string for the row.
@@ -182,8 +172,8 @@ def _quality_row(
 
     segs = (
         _seg("dub-bril", brilliant, "!!")
-        + _seg("dub-best", best, "B")
-        + _seg("dub-great", great, "Gr")
+        + _seg("dub-best", best, "!")
+        + _seg("dub-great", great, "!?")
         + neu_seg
         + _seg("dub-inac", inaccuracy, "?!")
         + _seg("dub-mist", mistake, "?")
@@ -191,14 +181,142 @@ def _quality_row(
     )
     return (
         f'<div class="dub-row">'
-        f'<div class="dub-player-lbl"><span class="dub-chess">{sym}</span>{escape(name)}</div>'
+        f'<div class="dub-stack">{segs}</div>'
+        f"</div>"
+    )
+
+
+def _wdl_row(sym: str, name: str, win: float, draw: float, loss: float, is_winner: bool = False) -> str:
+    """
+    Generate HTML for a Win/Draw/Loss probability stacked bar row.
+
+    Params:
+        sym (str): Chess piece symbol.
+        name (str): Player name.
+        win (float): Win probability 0–100.
+        draw (float): Draw probability 0–100.
+        loss (float): Loss probability 0–100.
+        is_winner (bool): Whether this player won the game.
+
+    Returns:
+        HTML string for the row.
+    """
+    def _seg(cls: str, pct: float, lbl: str) -> str:
+        """Build a single WDL segment."""
+        txt = lbl if pct >= 9 else ""
+        return f'<div class="dub-seg {cls}" style="flex:{pct:.1f}">{escape(txt)}</div>'
+
+    piece_color = "#FFFFFF" if sym == "♙" else "#000000"
+    trophy = " 🏆" if is_winner else ""
+    
+    segs = (
+        _seg("dub-win", win, f"W {win:.0f}%")
+        + _seg("dub-draw", draw, f"D {draw:.0f}%")
+        + _seg("dub-loss", loss, f"L {loss:.0f}%")
+    )
+    return (
+        f'<div class="dub-row">'
+        f'<div class="dub-player-lbl"><span class="dub-chess" style="color:{piece_color}">{sym}</span>{escape(name)}{trophy}</div>'
+        f'<div class="dub-stack">{segs}</div>'
+        f'<div class="dub-val" style="font-size:.58rem;color:#5A5A5A">WDL</div>'
+        f"</div>"
+    )
+
+
+def _wdl_bar(win: float, draw: float, loss: float) -> str:
+    """
+    Generate HTML for a WDL bar row without player label.
+
+    Params:
+        win (float): Win probability 0–100.
+        draw (float): Draw probability 0–100.
+        loss (float): Loss probability 0–100.
+
+    Returns:
+        HTML string for the row.
+    """
+    def _seg(cls: str, pct: float, lbl: str) -> str:
+        """Build a single WDL segment."""
+        txt = lbl if pct >= 9 else ""
+        return f'<div class="dub-seg {cls}" style="flex:{pct:.1f}">{escape(txt)}</div>'
+
+    segs = (
+        _seg("dub-win", win, f"W {win:.0f}%")
+        + _seg("dub-draw", draw, f"D {draw:.0f}%")
+        + _seg("dub-loss", loss, f"L {loss:.0f}%")
+    )
+    return (
+        f'<div class="dub-row">'
+        f'<div class="dub-stack">{segs}</div>'
+        f"</div>"
+    )
+
+
+def _quality_row(
+    sym: str, name: str,
+    brilliant: int, best: int, great: int,
+    inaccuracy: int, mistake: int, blunder: int,
+    total: int,
+    is_winner: bool = False,
+) -> str:
+    """
+    Generate HTML for a move quality classification stacked bar row.
+
+    Each segment shows a chess annotation symbol (e.g., "!! 2") when wide enough.
+
+    Params:
+        sym (str): Chess piece symbol.
+        name (str): Player name.
+        brilliant (int): Count of brilliant moves.
+        best (int): Count of best moves.
+        great (int): Count of great moves.
+        inaccuracy (int): Count of inaccuracies.
+        mistake (int): Count of mistakes.
+        blunder (int): Count of blunders.
+        total (int): Total moves for this side.
+        is_winner (bool): Whether this player won the game.
+
+    Returns:
+        HTML string for the row.
+    """
+    classified = brilliant + best + great + inaccuracy + mistake + blunder
+    neutral = max(0, total - classified)
+
+    def _seg(cls: str, n: int, short_lbl: str) -> str:
+        """Build a single quality classification segment."""
+        if n == 0 or total == 0:
+            return ""
+        pct = n / total * 100
+        txt = f"{short_lbl} {n}" if pct >= 6 else ""
+        return f'<div class="dub-seg {cls}" style="flex:{pct:.2f}">{escape(txt)}</div>'
+
+    neu_seg = ""
+    if neutral > 0 and total > 0:
+        pct = neutral / total * 100
+        neu_seg = f'<div class="dub-seg dub-neut" style="flex:{pct:.2f}"></div>'
+
+    piece_color = "#FFFFFF" if sym == "♙" else "#000000"
+    trophy = " 🏆" if is_winner else ""
+
+    segs = (
+        _seg("dub-bril", brilliant, "!!")
+        + _seg("dub-best", best, "!")
+        + _seg("dub-great", great, "!?")
+        + neu_seg
+        + _seg("dub-inac", inaccuracy, "?!")
+        + _seg("dub-mist", mistake, "?")
+        + _seg("dub-blun", blunder, "??")
+    )
+    return (
+        f'<div class="dub-row">'
+        f'<div class="dub-player-lbl"><span class="dub-chess" style="color:{piece_color}">{sym}</span>{escape(name)}{trophy}</div>'
         f'<div class="dub-stack">{segs}</div>'
         f'<div class="dub-val" style="font-size:.60rem;color:#5A5A5A">{total}</div>'
         f"</div>"
     )
 
 
-def _rerun_button(engine: str, queued: bool) -> str:
+def _rerun_button(engine: str, queued: bool, in_header: bool = False) -> str:
     """
     Generate an HTML rerun-analysis button for an engine card.
 
@@ -208,21 +326,23 @@ def _rerun_button(engine: str, queued: bool) -> str:
     Params:
         engine (str): Engine identifier — "stockfish" or "lc0".
         queued (bool): Whether this engine already has an active job.
+        in_header (bool): Whether the button is in the header (no margin-top).
 
     Returns:
         HTML button string.
     """
     label = "Stockfish" if engine == "stockfish" else "Lc0"
     btn_id = f"queue-btn-{engine}"
+    margin_style = "" if in_header else "margin-top:10px;"
     if queued:
         return (
             f'<button id="{btn_id}" class="wc-btn wc-btn-sm" disabled '
-            f'style="margin-top:10px">Already Queued</button>'
+            f'style="{margin_style}">Already Queued</button>'
         )
     return (
         f'<button id="{btn_id}" class="wc-btn wc-btn-sm" '
         f'onclick="window.openQueueModal(\'{engine}\')" '
-        f'style="margin-top:10px">Re-run {label}</button>'
+        f'style="{margin_style}">Re-run {label}</button>'
     )
 
 
@@ -245,38 +365,38 @@ def build_sf_card(data: GameAnalysisData, queued: bool = False) -> str:
         meta_parts.append(f"depth {data.engine_depth}")
     meta = " · ".join(meta_parts)
 
-    acc_section = ""
-    if data.white_accuracy is not None or data.black_accuracy is not None:
-        acc_section = '<div class="dub-lbl">Accuracy</div>'
-        if data.white_accuracy is not None:
-            acc_section += _bar_row("♙", data.white, data.white_accuracy, f"{data.white_accuracy:.1f}%")
-        if data.black_accuracy is not None:
-            acc_section += _bar_row("♟", data.black, data.black_accuracy, f"{data.black_accuracy:.1f}%")
+    # Determine who won
+    white_won = data.result == "1-0"
+    black_won = data.result == "0-1"
 
-    acpl_section = ""
-    if data.white_acpl is not None or data.black_acpl is not None:
-        acpl_section = '<hr class="dub-rule"><div class="dub-lbl">Avg Centipawn Loss</div>'
-        max_acpl = max(v for v in [data.white_acpl, data.black_acpl] if v is not None)
-        if data.white_acpl is not None:
-            pct = max(0.0, min(100.0, 100 - data.white_acpl / max(max_acpl, 1) * 100)) if max_acpl else 50.0
-            acpl_section += _bar_row("♙", data.white, pct, f"{data.white_acpl:.1f}", fill="#D4A843")
-        if data.black_acpl is not None:
-            pct = max(0.0, min(100.0, 100 - data.black_acpl / max(max_acpl, 1) * 100)) if max_acpl else 50.0
-            acpl_section += _bar_row("♟", data.black, pct, f"{data.black_acpl:.1f}", fill="#D4A843")
-
-    quality_section = ""
-    if data.moves:
-        w_moves = [m for m in data.moves if m.ply % 2 == 1]
-        b_moves = [m for m in data.moves if m.ply % 2 == 0]
-        if any(m.classification for m in data.moves):
-            def _cnt(moves_list, cls):
-                return sum(1 for m in moves_list if m.classification == cls)
-
-            quality_section = '<hr class="dub-rule"><div class="dub-lbl">Move Quality</div>'
-            for sym, name, side_moves, blun, mist, inac in [
-                ("♙", data.white, w_moves, data.white_blunders, data.white_mistakes, data.white_inaccuracies),
-                ("♟", data.black, b_moves, data.black_blunders, data.black_mistakes, data.black_inaccuracies),
-            ]:
+    # Build content organized by player
+    content = ""
+    
+    for sym, name, has_acc, acc_val, has_acpl, acpl_val, side_moves, blun, mist, inac, is_winner in [
+        ("♙", data.white, data.white_accuracy is not None, data.white_accuracy, 
+         data.white_acpl is not None, data.white_acpl,
+         [m for m in data.moves if m.ply % 2 == 1], 
+         data.white_blunders, data.white_mistakes, data.white_inaccuracies, white_won),
+        ("♟", data.black, data.black_accuracy is not None, data.black_accuracy, 
+         data.black_acpl is not None, data.black_acpl,
+         [m for m in data.moves if m.ply % 2 == 0], 
+         data.black_blunders, data.black_mistakes, data.black_inaccuracies, black_won),
+    ]:
+        # Add player section if we have any data
+        if has_acc or any(m.classification for m in side_moves):
+            # Player name label (bigger)
+            content += f'<div class="dub-player-name">{escape(name)}{" 🏆" if is_winner else ""}</div>'
+            
+            # Accuracy bar with label
+            if has_acc:
+                content += f'<div class="dub-metric-label">Accuracy</div>'
+                content += _metric_bar(acc_val, f"{acc_val:.1f}%")
+            
+            # Move quality bar with label
+            if side_moves and any(m.classification for m in side_moves):
+                def _cnt(moves_list, cls):
+                    return sum(1 for m in moves_list if m.classification == cls)
+                
                 bril = _cnt(side_moves, "brilliant")
                 best = _cnt(side_moves, "best")
                 great = _cnt(side_moves, "great")
@@ -285,8 +405,23 @@ def build_sf_card(data: GameAnalysisData, queued: bool = False) -> str:
                 blunder = blun if blun is not None else _cnt(side_moves, "blunder")
                 total = len(side_moves)
                 if total:
-                    quality_section += _quality_row(sym, name, bril, best, great, inaccuracy, mistake, blunder, total)
-            quality_section += _QUALITY_INLINE_LEGEND
+                    content += f'<div class="dub-metric-label">Move Quality</div>'
+                    content += _quality_metric_bar(bril, best, great, inaccuracy, mistake, blunder, total)
+            
+            # ACPL chip if available (at bottom)
+            if has_acpl and acpl_val is not None:
+                content += f'<div class="dub-chip" style="margin-top:8px;">ACPL: {acpl_val:.1f}</div>'
+            
+            # Add spacing between players
+            if name == data.white:
+                content += '<hr class="dub-rule">'
+
+    # Add rerun button row below players
+    button_row = (
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">'
+        + _rerun_button("stockfish", queued, in_header=False)
+        + f'</div>'
+    )
 
     return (
         f'<div class="dub">'
@@ -294,8 +429,8 @@ def build_sf_card(data: GameAnalysisData, queued: bool = False) -> str:
         f'<span class="dub-title">Stockfish Analysis</span>'
         f'<span class="dub-meta">{escape(meta)}</span>'
         f"</div>"
-        + acc_section + acpl_section + quality_section
-        + _rerun_button("stockfish", queued)
+        + content
+        + button_row
         + "</div>"
     )
 
@@ -323,51 +458,51 @@ def build_lc0_card(data: GameAnalysisData, queued: bool = False) -> str:
         meta_parts.append(f"{data.lc0_engine_nodes:,} nodes/move")
     meta = " · ".join(meta_parts)
 
-    wdl_section = '<div class="dub-lbl">Win / Draw / Loss — average over game</div>'
-    if data.lc0_white_win_prob is not None:
-        wdl_section += _wdl_row(
-            "♙", data.white,
-            data.lc0_white_win_prob,
-            data.lc0_white_draw_prob or 0.0,
-            data.lc0_white_loss_prob or 0.0,
-        )
-    if data.lc0_black_win_prob is not None:
-        wdl_section += _wdl_row(
-            "♟", data.black,
-            data.lc0_black_win_prob,
-            data.lc0_black_draw_prob or 0.0,
-            data.lc0_black_loss_prob or 0.0,
-        )
+    # Determine who won
+    white_won = data.result == "1-0"
+    black_won = data.result == "0-1"
 
-    errors_section = ""
-    lc0_errors = [
-        data.lc0_white_inaccuracies, data.lc0_white_mistakes, data.lc0_white_blunders,
-        data.lc0_black_inaccuracies, data.lc0_black_mistakes, data.lc0_black_blunders,
-    ]
-    if any(v is not None for v in lc0_errors):
-        errors_section = '<hr class="dub-rule"><div class="dub-lbl">Move Errors</div>'
+    # Build content organized by player
+    content = ""
+    
+    for sym, name, win_prob, draw_prob, loss_prob, inac, mist, blun, is_winner in [
+        ("♙", data.white, data.lc0_white_win_prob, data.lc0_white_draw_prob or 0.0, data.lc0_white_loss_prob or 0.0,
+         data.lc0_white_inaccuracies, data.lc0_white_mistakes, data.lc0_white_blunders, white_won),
+        ("♟", data.black, data.lc0_black_win_prob, data.lc0_black_draw_prob or 0.0, data.lc0_black_loss_prob or 0.0,
+         data.lc0_black_inaccuracies, data.lc0_black_mistakes, data.lc0_black_blunders, black_won),
+    ]:
+        # Only render if we have WDL data
+        if win_prob is not None:
+            # Player name label
+            content += f'<div class="dub-player-name">{escape(name)}{" 🏆" if is_winner else ""}</div>'
+            
+            # Win/Draw/Loss bar with label
+            content += f'<div class="dub-metric-label">Win / Draw / Loss</div>'
+            content += _wdl_bar(win_prob, draw_prob, loss_prob)
+            
+            # Error counts if available
+            has_errors = inac is not None or mist is not None or blun is not None
+            if has_errors:
+                content += f'<div class="dub-metric-label">Move Errors</div>'
+                error_spans = ""
+                if inac is not None:
+                    error_spans += f'<span style="font-size:.70rem;font-weight:700;color:#E07B7B">{inac}</span><span style="font-size:.54rem;letter-spacing:.05em;color:#5A5A5A;margin-left:2px;margin-right:8px">inaccuracy</span>'
+                if mist is not None:
+                    error_spans += f'<span style="font-size:.70rem;font-weight:700;color:#CE3A4A">{mist}</span><span style="font-size:.54rem;letter-spacing:.05em;color:#5A5A5A;margin-left:2px;margin-right:8px">mistake</span>'
+                if blun is not None:
+                    error_spans += f'<span style="font-size:.70rem;font-weight:700;color:#B53541">{blun}</span><span style="font-size:.54rem;letter-spacing:.05em;color:#5A5A5A;margin-left:2px">blunder</span>'
+                content += f'<div style="display:flex;align-items:baseline;flex-wrap:wrap;margin-bottom:8px">{error_spans}</div>'
+            
+            # Add spacing between players
+            if name == data.white:
+                content += '<hr class="dub-rule">'
 
-        def _count_span(n: Optional[int], lbl: str, cls: str) -> str:
-            """Format a single error count span."""
-            if n is None:
-                return ""
-            return f'<span style="font-size:.70rem;font-weight:700;color:{cls}">{n}</span><span style="font-size:.54rem;letter-spacing:.05em;color:#5A5A5A;margin-left:2px;margin-right:8px">{lbl}</span>'
-
-        for sym, name, inac, mist, blun in [
-            ("♙", data.white, data.lc0_white_inaccuracies, data.lc0_white_mistakes, data.lc0_white_blunders),
-            ("♟", data.black, data.lc0_black_inaccuracies, data.lc0_black_mistakes, data.lc0_black_blunders),
-        ]:
-            counts = (
-                _count_span(inac, "inaccuracy", "#E07B7B")
-                + _count_span(mist, "mistake", "#CE3A4A")
-                + _count_span(blun, "blunder", "#B53541")
-            )
-            errors_section += (
-                f'<div class="dub-row">'
-                f'<div class="dub-player-lbl"><span class="dub-chess">{sym}</span>{escape(name)}</div>'
-                f'<div style="grid-column:2/4;display:flex;align-items:baseline;flex-wrap:wrap">{counts}</div>'
-                f"</div>"
-            )
+    # Add rerun button row below players
+    button_row = (
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">'
+        + _rerun_button("lc0", queued, in_header=False)
+        + f'</div>'
+    )
 
     return (
         f'<div class="dub">'
@@ -375,8 +510,8 @@ def build_lc0_card(data: GameAnalysisData, queued: bool = False) -> str:
         f'<span class="dub-title">Lc0 Neural Network</span>'
         f'<span class="dub-meta">{escape(meta)}</span>'
         f"</div>"
-        + wdl_section + errors_section
-        + _rerun_button("lc0", queued)
+        + content
+        + button_row
         + "</div>"
     )
 

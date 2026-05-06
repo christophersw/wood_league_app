@@ -492,7 +492,7 @@ class QualityRowTest(TestCase):
     def test_shows_segment_count_when_wide_enough(self):
         """_quality_row shows count labels in segments that are wide enough."""
         html = _quality_row("♙", "P", 0, 15, 0, 0, 0, 0, 20)
-        self.assertIn("B 15", html)
+        self.assertIn("! 15", html)
 
     def test_total_in_val_column(self):
         """_quality_row shows total move count in the value column."""
@@ -537,11 +537,11 @@ class BuildSfCardTest(TestCase):
         self.assertEqual(build_sf_card(data), "")
 
     def test_contains_accuracy_when_present(self):
-        """build_sf_card includes accuracy section when data is available."""
+        """build_sf_card includes accuracy bars when data is available."""
         data = _minimal_data(white_accuracy=85.0, black_accuracy=78.0)
         html = build_sf_card(data)
-        self.assertIn("Accuracy", html)
         self.assertIn("85.0%", html)
+        self.assertIn("78.0%", html)
 
     def test_includes_rerun_button(self):
         """build_sf_card always includes a rerun button."""
