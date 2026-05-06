@@ -694,6 +694,113 @@ All four repos have **no dependency vulnerabilities**.
 
 ---
 
+## Analysis Worker API
+
+The Analysis Worker API enables remote workers (Stockfish/Lc0 engines on RunPod or other cloud platforms) to:
+- **Checkout** analysis jobs from the queue
+- **Report results** (moves, evaluations, WDL probabilities, metrics)
+- **Report errors** (with retry auto-recovery)
+- **Send heartbeats** (status updates, engine info)
+- **Check queue status** (health, pending job count)
+
+### Authentication
+
+All API endpoints except `/health/` require an **API key** in the `X-Api-Key` header. Keys are issued via the Django admin UI at `/admin/api-keys/`.
+
+```bash
+curl -H "X-Api-Key: <raw-key-from-admin-ui>" https://app.example.com/api/v1/jobs/status/
+```
+
+### Endpoints
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `GET` | `/api/v1/health/` | None | Liveness check; returns `{"status": "ok"}` |
+| `GET` | `/api/v1/jobs/status/` | Key | Queue health; returns `{"pending": N, "running": N, "completed": N}` |
+| `POST` | `/api/v1/jobs/checkout/` | Key | Claim next pending job; returns job ID + board FEN |
+| `POST` | `/api/v1/jobs/<id>/complete/stockfish/` | Key | Submit Stockfish analysis results; updates job as `completed` |
+| `POST` | `/api/v1/jobs/<id>/complete/lc0/` | Key | Submit Lc0 analysis results (WDL); updates job as `completed` |
+| `POST` | `/api/v1/jobs/<id>/fail/` | Key | Report job failure; retries up to `MAX_JOB_RETRIES` times, then marks `failed` |
+| `POST` | `/api/v1/jobs/<id>/heartbeat/` | Key | Send worker status update; updates `last_heartbeat_at` timestamp |
+
+### Example: Checkout Job
+
+**Request:**
+```bash
+POST /api/v1/jobs/checkout/
+X-Api-Key: sk-abc123...
+Content-Type: application/json
+
+{
+  "worker_id": "stockfish-runpod-001",
+  "engine": "stockfish",
+  "available_depth": 22
+}
+```
+
+**Response (200):**
+```json
+{
+  "id": "job-12345",
+  "board_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+  "moves_pgn": "1. e4 c5",
+  "requested_depth": 20,
+  "game_id": "game-5678"
+}
+```
+
+**Response (204 No Content):**
+No jobs available in queue.
+
+### Example: Submit Stockfish Results
+
+**Request:**
+```bash
+POST /api/v1/jobs/job-12345/complete/stockfish/
+X-Api-Key: sk-abc123...
+Content-Type: application/json
+
+{
+  "worker_id": "stockfish-runpod-001",
+  "engine_depth": 22,
+  "nodes": 1500000,
+  "analysis": [
+    {"ply": 0, "eval": 50, "best_move": "e2e4", "mate_in": null},
+    {"ply": 1, "eval": 40, "best_move": "c7c5", "mate_in": null},
+  ]
+}
+```
+
+**Response (200):**
+```json
+{
+  "id": "job-12345",
+  "status": "completed",
+  "completed_at": "2025-05-06T14:32:18Z"
+}
+```
+
+### Fault Tolerance & Recovery
+
+**Stale Job Recovery:** If a worker crashes mid-analysis, jobs stuck in `running` state for more than `STALE_JOB_TIMEOUT_MINUTES` (default 15) are automatically reset to `pending` on the next `/checkout/` call. Workers need not clean up after themselves.
+
+**Retry Logic:** When a worker calls `/fail/`, the job's `retry_count` is incremented. If `retry_count < MAX_JOB_RETRIES` (default 3), the job reverts to `pending` and can be claimed again. Otherwise, it's marked `failed` and skipped.
+
+**Heartbeat Monitoring:** Workers should POST `/heartbeat/` every 30 seconds with current engine name and status message. This allows the admin UI to detect stalled workers.
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `STALE_JOB_TIMEOUT_MINUTES` | `15` | Minutes a job can be `running` before auto-reset to `pending` |
+| `MAX_JOB_RETRIES` | `3` | Max retry attempts before marking job as `failed` |
+
+### Rate Limiting
+
+The API enforces **1000 requests/hour per API key**. This limit is checked globally across all endpoints except `/health/`.
+
+---
+
 ## Architecture notes
 
 - If no `DATABASE_URL` is set, the app uses a local SQLite file (`wood_league_chess.db`).

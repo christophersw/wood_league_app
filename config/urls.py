@@ -20,4 +20,8 @@ urlpatterns = [
     path("_partials/", include("openings.partial_urls")),
     path("_partials/", include("analysis.partial_urls")),
     path("_partials/", include("players.partial_urls")),
+    path("api/v1/", include("api.urls")),
+    # Admin UI for API key management (session auth, not under /api/v1/)
+    path("admin/api-keys/", include("api.admin_urls")),
+    path("_partials/admin/api-keys/", include("api.admin_urls")),
 ]

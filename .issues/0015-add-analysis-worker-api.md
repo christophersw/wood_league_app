@@ -1,8 +1,10 @@
 # Add Analysis Worker API
 
 **priority:** high  
-**status:** open  
-**created:** 2026-05-06
+**status:** completed  
+**created:** 2026-05-06  
+**claimed-by:** Copilot
+
 
 ## Description
 

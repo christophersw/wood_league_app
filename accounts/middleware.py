@@ -27,6 +27,10 @@ class LoginRequiredMiddleware:
         if not getattr(settings, "AUTH_ENABLED", True):
             return self.get_response(request)
 
+        # Exempt /api/v1/ (uses API key auth, not session auth)
+        if request.path.startswith('/api/v1/'):
+            return self.get_response(request)
+
         if request.path not in _PUBLIC_PATHS and not request.user.is_authenticated:
             login_url = reverse("accounts:login")
             return redirect(f"{login_url}?next={request.path}")

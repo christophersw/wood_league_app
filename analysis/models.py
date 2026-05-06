@@ -203,6 +203,15 @@ class AnalysisJob(models.Model):
     duration_seconds = models.FloatField(null=True, blank=True)
     runpod_job_id = models.CharField(max_length=64, null=True, blank=True)
     submitted_at = models.DateTimeField(null=True, blank=True)
+    claimed_by_key_prefix = models.CharField(
+        max_length=8, null=True, blank=True,
+        help_text='8-char API key prefix of the worker that claimed this job',
+    )
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    nodes = models.IntegerField(
+        null=True, blank=True,
+        help_text='Lc0 MCTS node budget for this job; null means use LC0_NODES setting',
+    )
 
     class Meta:
         db_table = "analysis_jobs"
@@ -223,6 +232,8 @@ class WorkerHeartbeat(models.Model):
     """Monitors health and status of remote analysis workers."""
     worker_id = models.CharField(max_length=64, primary_key=True)
     last_seen = models.DateTimeField(auto_now=True)
+    engine = models.CharField(max_length=16, null=True, blank=True)
+    status_message = models.CharField(max_length=256, null=True, blank=True)
     status = models.CharField(max_length=16, default="idle")
     current_game_id = models.CharField(max_length=64, null=True, blank=True)
     jobs_completed = models.IntegerField(default=0)
