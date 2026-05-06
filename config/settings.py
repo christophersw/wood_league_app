@@ -134,3 +134,7 @@ CHESS_COM_USER_AGENT = config(
 )
 INGEST_MONTH_LIMIT = config("INGEST_MONTH_LIMIT", default=24, cast=int)
 DEFAULT_HISTORY_DAYS = config("DEFAULT_HISTORY_DAYS", default=90, cast=int)
+
+# Engine analysis settings
+ANALYSIS_DEPTH = config("ANALYSIS_DEPTH", default=20, cast=int)
+LC0_NODES = config("LC0_NODES", default=25000, cast=int)

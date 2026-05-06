@@ -22,6 +22,7 @@ import re
 
 import chess
 import chess.pgn as _pgn
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, render
@@ -631,10 +632,17 @@ def queue_analysis(request: HttpRequest, slug: str) -> HttpResponse:
     if already_queued:
         return render(request, "games/_queue_already_queued.html", {"engine": engine})
 
+    # Use Django settings for analysis depth
+    if engine == "lc0":
+        depth = settings.LC0_NODES
+    else:
+        depth = settings.ANALYSIS_DEPTH
+    
     AnalysisJob.objects.create(
         game=game,
         engine=engine,
         status=AnalysisJob.STATUS_PENDING,
         priority=1,
+        depth=depth,
     )
     return render(request, "games/_queue_success.html", {"engine": engine})
