@@ -26,6 +26,13 @@ ALLOWED_HOSTS = list(_allowed_hosts)
 if "healthcheck.railway.app" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("healthcheck.railway.app")
 
+# CSRF protection for reverse proxy (Railway)
+CSRF_TRUSTED_ORIGINS = config(
+    "CSRF_TRUSTED_ORIGINS",
+    default="",
+    cast=Csv(),
+)
+
 AUTH_USER_MODEL = "accounts.User"
 
 INSTALLED_APPS = [
