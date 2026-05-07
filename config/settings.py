@@ -56,6 +56,9 @@ INSTALLED_APPS = [
     "dashboard",
     "search",
     "ingest",
+    "rest_framework",
+    "rest_framework_api_key",
+    "api",
 ]
 
 MIDDLEWARE = [
@@ -145,6 +148,33 @@ LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/auth/login/"
 
 AUTH_ENABLED = config("AUTH_ENABLED", default=True, cast=bool)
+
+REST_FRAMEWORK = {
+    # No session auth on the API — key auth is permission-based
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'api.authentication.WorkerAPIKeyAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework_api_key.permissions.HasAPIKey',
+    ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'checkout': '60/min',
+        'complete': '120/min',
+        'heartbeat': '600/min',
+    },
+    'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
+}
+
+# Workers send: X-Api-Key: <key>
+API_KEY_CUSTOM_HEADER = 'HTTP_X_API_KEY'
+
+# Tunable fault-tolerance constants (override in .env)
+import os
+STALE_JOB_TIMEOUT_MINUTES = int(os.environ.get('STALE_JOB_TIMEOUT_MINUTES', 15))
+MAX_JOB_RETRIES = int(os.environ.get('MAX_JOB_RETRIES', 3))
 
 TAILWIND_CLI_SRC_CSS = "static/css/main.css"
 TAILWIND_CLI_OUTPUT_CSS = "css/tailwind.css"
