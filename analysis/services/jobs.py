@@ -20,6 +20,15 @@ from analysis.models import (
 
 
 # ── Constants ────────────────────────────────────────────────────────────
+class JobCheckoutDenied(Exception):
+    """Raised when a requested job checkout cannot be honored."""
+
+
+def _analysis_already_completed(*, engine: str, game_id: str) -> bool:
+    """Return True when the requested game already has completed analysis for the engine."""
+    if engine == 'stockfish':
+        return GameAnalysis.objects.filter(game_id=game_id).exists()
+    return Lc0GameAnalysis.objects.filter(game_id=game_id).exists()
 
 
 def _stale_timeout() -> timedelta:
@@ -63,6 +72,7 @@ def claim_jobs(
     batch_size: int,
     worker_id: str,
     key_prefix: str | None = None,
+    game_id: str | None = None,
 ) -> list[AnalysisJob]:
     """Atomically claim up to batch_size pending jobs using SELECT FOR UPDATE SKIP LOCKED.
 
@@ -71,13 +81,37 @@ def claim_jobs(
     """
     with transaction.atomic():
         recover_stale_jobs(engine)
-        jobs = list(
-            AnalysisJob.objects
-            .select_for_update(skip_locked=True)
-            .filter(engine=engine, status=AnalysisJob.STATUS_PENDING)
-            .order_by('-priority', 'created_at')
-            [:batch_size]
-        )
+        if game_id:
+            jobs_for_game = (
+                AnalysisJob.objects
+                .select_for_update(skip_locked=True)
+                .filter(engine=engine, game_id=game_id)
+            )
+
+            if (
+                _analysis_already_completed(engine=engine, game_id=game_id)
+                or jobs_for_game.filter(status=AnalysisJob.STATUS_COMPLETED).exists()
+            ):
+                raise JobCheckoutDenied('Analysis already completed for requested game')
+
+            if jobs_for_game.filter(status=AnalysisJob.STATUS_RUNNING).exists():
+                raise JobCheckoutDenied('Requested game is already claimed')
+
+            jobs = list(
+                jobs_for_game
+                .filter(status=AnalysisJob.STATUS_PENDING)
+                .order_by('-priority', 'created_at')[:1]
+            )
+            if not jobs:
+                raise JobCheckoutDenied('No pending job exists for requested game')
+        else:
+            jobs = list(
+                AnalysisJob.objects
+                .select_for_update(skip_locked=True)
+                .filter(engine=engine, status=AnalysisJob.STATUS_PENDING)
+                .order_by('-priority', 'created_at')
+                [:batch_size]
+            )
         if not jobs:
             return []
         now = timezone.now()

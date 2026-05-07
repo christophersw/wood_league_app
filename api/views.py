@@ -48,12 +48,16 @@ class JobCheckoutView(APIView):
         ser.is_valid(raise_exception=True)
         d = ser.validated_data
 
-        claimed = job_service.claim_jobs(
-            engine=d['engine'],
-            batch_size=d['batch_size'],
-            worker_id=d['worker_id'],
-            key_prefix=_key_prefix(request),
-        )
+        try:
+            claimed = job_service.claim_jobs(
+                engine=d['engine'],
+                batch_size=d['batch_size'],
+                worker_id=d['worker_id'],
+                key_prefix=_key_prefix(request),
+                game_id=d.get('game_id'),
+            )
+        except job_service.JobCheckoutDenied as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
         _touch_key(request)
         return Response(
             {'jobs': sz.JobSerializer(claimed, many=True).data},

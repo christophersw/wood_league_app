@@ -19,6 +19,7 @@ class CheckoutRequestSerializer(serializers.Serializer):
     engine = serializers.ChoiceField(choices=ENGINE_CHOICES)
     batch_size = serializers.IntegerField(min_value=1, max_value=10, default=1)
     worker_id = serializers.CharField(max_length=64)
+    game_id = serializers.CharField(max_length=64, required=False)
 
 
 class JobSerializer(serializers.Serializer):

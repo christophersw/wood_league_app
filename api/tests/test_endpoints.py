@@ -111,6 +111,93 @@ class JobCheckoutTests(TestCase):
         self.assertEqual(data['jobs'][0]['id'], j2.id)  # Higher priority first
         self.assertEqual(data['jobs'][1]['id'], j1.id)
 
+    def test_checkout_specific_game_claims_only_requested_job(self):
+        """Checkout claims only the requested game when game_id is provided."""
+        target_game = Game.objects.create(
+            id='requested-game',
+            white_username='C',
+            black_username='D',
+            played_at=timezone.now(),
+            time_control='rapid',
+            pgn='1. d4 d5',
+        )
+        target_job = AnalysisJob.objects.create(
+            game=target_game,
+            engine='stockfish',
+            status=AnalysisJob.STATUS_PENDING,
+        )
+        AnalysisJob.objects.create(
+            game=self.game,
+            engine='stockfish',
+            status=AnalysisJob.STATUS_PENDING,
+        )
+
+        response = self.client.post('/api/v1/jobs/checkout/', {
+            'engine': 'stockfish',
+            'batch_size': 10,
+            'worker_id': 'my-worker',
+            'game_id': target_game.id,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data['jobs']), 1)
+        self.assertEqual(data['jobs'][0]['id'], target_job.id)
+
+    def test_checkout_specific_game_denied_when_analysis_already_done(self):
+        """Checkout returns 409 when requested game already has completed analysis."""
+        target_game = Game.objects.create(
+            id='already-analyzed-game',
+            white_username='C',
+            black_username='D',
+            played_at=timezone.now(),
+            time_control='rapid',
+            pgn='1. d4 d5',
+        )
+        AnalysisJob.objects.create(
+            game=target_game,
+            engine='stockfish',
+            status=AnalysisJob.STATUS_PENDING,
+        )
+        GameAnalysis.objects.create(game=target_game)
+
+        response = self.client.post('/api/v1/jobs/checkout/', {
+            'engine': 'stockfish',
+            'batch_size': 1,
+            'worker_id': 'my-worker',
+            'game_id': target_game.id,
+        })
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('already completed', response.json()['error'])
+
+    def test_checkout_specific_game_denied_when_already_claimed(self):
+        """Checkout returns 409 when requested game is already running."""
+        target_game = Game.objects.create(
+            id='already-claimed-game',
+            white_username='C',
+            black_username='D',
+            played_at=timezone.now(),
+            time_control='rapid',
+            pgn='1. d4 d5',
+        )
+        AnalysisJob.objects.create(
+            game=target_game,
+            engine='stockfish',
+            status=AnalysisJob.STATUS_RUNNING,
+            worker_id='other-worker',
+        )
+
+        response = self.client.post('/api/v1/jobs/checkout/', {
+            'engine': 'stockfish',
+            'batch_size': 1,
+            'worker_id': 'my-worker',
+            'game_id': target_game.id,
+        })
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('already claimed', response.json()['error'])
+
 
 class JobCompleteTests(TestCase):
     """Test POST /api/v1/jobs/<id>/complete/"""

@@ -19,6 +19,7 @@ from analysis.services.jobs import (
     complete_stockfish_job,
     complete_lc0_job,
     fail_job,
+    JobCheckoutDenied,
 )
 
 
@@ -161,6 +162,90 @@ class ClaimJobsTests(TestCase):
         self.assertEqual(job.claimed_by_key_prefix, 'xyz99999')
         self.assertGreaterEqual(job.claimed_at, before)
         self.assertLessEqual(job.claimed_at, after)
+
+    def test_claim_specific_game_claims_requested_job(self):
+        """claim_jobs claims only the requested game when game_id is provided."""
+        target_game = Game.objects.create(
+            id='requested-game',
+            white_username='Carol',
+            black_username='Dave',
+            played_at='2026-05-06T00:00:00Z',
+            time_control='rapid',
+            pgn='1. d4 d5',
+        )
+        target_job = AnalysisJob.objects.create(
+            game=target_game,
+            engine='stockfish',
+            status=AnalysisJob.STATUS_PENDING,
+        )
+        AnalysisJob.objects.create(
+            game=self.game,
+            engine='stockfish',
+            status=AnalysisJob.STATUS_PENDING,
+        )
+
+        jobs = claim_jobs(
+            engine='stockfish',
+            batch_size=10,
+            worker_id='my-worker',
+            key_prefix='abc12345',
+            game_id=target_game.id,
+        )
+
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0].id, target_job.id)
+
+    def test_claim_specific_game_denied_when_analysis_exists(self):
+        """claim_jobs denies request when analysis already exists for requested game."""
+        target_game = Game.objects.create(
+            id='already-analyzed-game',
+            white_username='Carol',
+            black_username='Dave',
+            played_at='2026-05-06T00:00:00Z',
+            time_control='rapid',
+            pgn='1. d4 d5',
+        )
+        AnalysisJob.objects.create(
+            game=target_game,
+            engine='stockfish',
+            status=AnalysisJob.STATUS_PENDING,
+        )
+        GameAnalysis.objects.create(game=target_game)
+
+        with self.assertRaises(JobCheckoutDenied):
+            claim_jobs(
+                engine='stockfish',
+                batch_size=1,
+                worker_id='my-worker',
+                key_prefix='abc12345',
+                game_id=target_game.id,
+            )
+
+    def test_claim_specific_game_denied_when_already_claimed(self):
+        """claim_jobs denies request when requested game is already running."""
+        target_game = Game.objects.create(
+            id='already-claimed-game',
+            white_username='Carol',
+            black_username='Dave',
+            played_at='2026-05-06T00:00:00Z',
+            time_control='rapid',
+            pgn='1. d4 d5',
+        )
+        AnalysisJob.objects.create(
+            game=target_game,
+            engine='stockfish',
+            status=AnalysisJob.STATUS_RUNNING,
+            worker_id='other-worker',
+        )
+
+        with self.assertRaises(JobCheckoutDenied):
+            claim_jobs(
+                engine='stockfish',
+                batch_size=1,
+                worker_id='my-worker',
+                key_prefix='abc12345',
+                game_id=target_game.id,
+            )
 
 
 class FailJobTests(TestCase):

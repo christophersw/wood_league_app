@@ -734,9 +734,12 @@ Content-Type: application/json
 {
   "worker_id": "stockfish-runpod-001",
   "engine": "stockfish",
-  "available_depth": 22
+  "available_depth": 22,
+  "game_id": "game-5678"
 }
 ```
+
+`game_id` is optional. When provided, checkout targets that exact game and returns `409 Conflict` if analysis for that engine is already completed or the game is already claimed by another worker.
 
 **Response (200):**
 ```json
